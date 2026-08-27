@@ -1,0 +1,104 @@
+name: Kalite kapilari
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Hijyen, test, kapsam, build ve E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CI: "true"
+      NEXT_TELEMETRY_DISABLED: "1"
+
+    steps:
+      - name: Kaynak kodu al
+        uses: actions/checkout@v4
+
+      - name: Node.js 22 kur
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Bagimliliklari kilitli surumlerle kur
+        run: npm ci
+
+      - name: Kaynak hijyenini dogrula
+        run: node scripts/verify-source-hygiene.mjs
+
+      - name: TypeScript tiplerini dogrula
+        run: npm run typecheck
+
+      - name: ESLint kurallarini dogrula
+        run: npm run lint
+
+      - name: Birim testlerini kapsam esikleriyle calistir
+        run: npm run test:coverage
+
+      - name: Uretim bagimliliklarini denetle
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Uretim SBOM dosyasini olustur
+        run: |
+          mkdir -p artifacts/release
+          npm sbom --omit=dev --sbom-format=cyclonedx > artifacts/release/mrap-sbom.cdx.json
+
+      - name: SBOM kanitini sakla
+        uses: actions/upload-artifact@v4
+        with:
+          name: mrap-production-sbom
+          path: artifacts/release/mrap-sbom.cdx.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Uretim derlemesini dogrula
+        run: npm run build
+
+      - name: Yerel otoriteli urun ve eszamanlilik akisini dogrula
+        shell: bash
+        env:
+          MRAP_SQLITE_FILENAME: quality-${{ github.run_id }}.sqlite
+          MRAP_SMOKE_BASE_URL: http://127.0.0.1:3100
+          MRAP_SIMULATOR_BASE_URL: http://127.0.0.1:3100
+        run: |
+          wait_for_server() {
+            server_ready=0
+            for attempt in $(seq 1 60); do
+              if curl --fail --silent http://127.0.0.1:3100/api/game/health > /dev/null; then
+                server_ready=1
+                break
+              fi
+              sleep 1
+            done
+            if [ "$server_ready" -ne 1 ]; then
+              cat /tmp/mrap-quality-server.log
+              exit 1
+            fi
+          }
+
+          # Production kayıt akışı Turnstile olmadan bilinçli olarak fail-closed
+          # davranır. Yerel SQLite ürün/simulator smoke'ları bu nedenle dev
+          # sunucusunda çalışır; production derlemesi üstteki ayrı build kapısıdır.
+          node node_modules/next/dist/bin/next dev --hostname 127.0.0.1 --port 3100 > /tmp/mrap-quality-server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          wait_for_server
+          npm run smoke:product
+          npm run simulate:multiplayer
+
+      - name: Playwright tarayicilarini kur
+        run: npx playwright install --with-deps chromium firefox webkit
+
+      - name: Chromium, Firefox ve WebKit E2E testlerini calistir
+        run: npm run test:e2e

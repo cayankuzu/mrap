@@ -1,0 +1,53 @@
+import type { AuthoritativeUiState } from "@/lib/game/authoritative-types";
+
+export type AuthoritativeUiEvent =
+  | "REQUEST_LOCATION"
+  | "LOCATION_READY"
+  | "START"
+  | "LOOP_DETECTED"
+  | "CONTINUE"
+  | "SUBMIT"
+  | "ACCEPT"
+  | "PARTIAL"
+  | "REJECT"
+  | "LOW_ACCURACY"
+  | "OFFLINE"
+  | "RESYNC"
+  | "SYNCED"
+  | "REVOKE"
+  | "FINISH"
+  | "RESET";
+
+const transitions: Partial<Record<AuthoritativeUiState, Partial<Record<AuthoritativeUiEvent, AuthoritativeUiState>>>> = {
+  IDLE: { REQUEST_LOCATION: "ACQUIRING_LOCATION", RESET: "IDLE" },
+  ACQUIRING_LOCATION: { LOCATION_READY: "READY", REJECT: "CLAIM_REJECTED", RESET: "IDLE" },
+  READY: { START: "TRACKING", RESET: "IDLE" },
+  TRACKING: { LOOP_DETECTED: "LOOP_AVAILABLE", LOW_ACCURACY: "PAUSED_LOW_ACCURACY", OFFLINE: "PAUSED_OFFLINE", RESYNC: "RESYNCING_MAP", FINISH: "FINISHED", REVOKE: "SESSION_REVOKED" },
+  LOOP_AVAILABLE: { CONTINUE: "CONTINUING", SUBMIT: "SUBMITTING_CLAIM", LOW_ACCURACY: "PAUSED_LOW_ACCURACY", OFFLINE: "PAUSED_OFFLINE", FINISH: "FINISHED", REVOKE: "SESSION_REVOKED" },
+  CONTINUING: { START: "TRACKING", LOOP_DETECTED: "LOOP_AVAILABLE", FINISH: "FINISHED" },
+  SUBMITTING_CLAIM: { ACCEPT: "CLAIM_ACCEPTED", PARTIAL: "CLAIM_PARTIAL", REJECT: "CLAIM_REJECTED", OFFLINE: "PAUSED_OFFLINE", REVOKE: "SESSION_REVOKED" },
+  CLAIM_ACCEPTED: { START: "TRACKING", LOOP_DETECTED: "LOOP_AVAILABLE", FINISH: "FINISHED" },
+  CLAIM_PARTIAL: { START: "TRACKING", LOOP_DETECTED: "LOOP_AVAILABLE", FINISH: "FINISHED" },
+  CLAIM_REJECTED: { START: "TRACKING", LOOP_DETECTED: "LOOP_AVAILABLE", FINISH: "FINISHED", RESET: "IDLE" },
+  PAUSED_LOW_ACCURACY: { LOCATION_READY: "TRACKING", FINISH: "FINISHED", REVOKE: "SESSION_REVOKED" },
+  PAUSED_OFFLINE: { LOCATION_READY: "RESYNCING_MAP", FINISH: "FINISHED", REVOKE: "SESSION_REVOKED" },
+  RESYNCING_MAP: { SYNCED: "TRACKING", REVOKE: "SESSION_REVOKED", FINISH: "FINISHED" },
+  SESSION_REVOKED: { RESET: "IDLE" },
+  FINISHED: { RESET: "IDLE", REQUEST_LOCATION: "ACQUIRING_LOCATION" },
+};
+
+export class AuthoritativeGameStateMachine {
+  constructor(private current: AuthoritativeUiState = "IDLE") {}
+
+  get state() {
+    return this.current;
+  }
+
+  send(event: AuthoritativeUiEvent) {
+    const next = transitions[this.current]?.[event];
+    if (!next) return { accepted: false as const, state: this.current };
+    this.current = next;
+    return { accepted: true as const, state: this.current };
+  }
+}
+

@@ -1,0 +1,227 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  createAdmin: vi.fn(),
+  decodeProfileImage: vi.fn(),
+}));
+
+vi.mock("server-only", () => ({}));
+vi.mock("@/lib/supabase/admin-client", () => ({
+  createMrapSupabaseAdminClient: mocks.createAdmin,
+}));
+vi.mock("@/server/http/media-validation", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@/server/http/media-validation")>();
+  return { ...original, decodeSanitizedImageDataUrl: mocks.decodeProfileImage };
+});
+
+import {
+  getRouteSessionTotals,
+  listPostPage,
+  resolveFollowRequest,
+  setLikeState,
+  updateUser,
+} from "@/lib/supabase-repository";
+
+type Operation = { name: string; args: unknown[] };
+type QueryResult = { data?: unknown; error?: unknown; count?: number | null };
+type QueryResolver = (table: string, operations: readonly Operation[]) => QueryResult | Promise<QueryResult>;
+
+const chainMethods = [
+  "select", "eq", "neq", "in", "is", "not", "ilike", "or", "order", "limit", "range",
+  "insert", "update", "upsert", "delete", "single", "maybeSingle",
+] as const;
+
+function queryBuilder(table: string, resolver: QueryResolver, queryLog: Array<{ table: string; operations: Operation[] }>) {
+  const operations: Operation[] = [];
+  const builder: Record<string, unknown> = {};
+  for (const method of chainMethods) {
+    builder[method] = (...args: unknown[]) => {
+      operations.push({ name: method, args });
+      return builder;
+    };
+  }
+  builder.then = (onFulfilled: (value: QueryResult) => unknown, onRejected?: (reason: unknown) => unknown) => {
+    queryLog.push({ table, operations: [...operations] });
+    return Promise.resolve(resolver(table, operations)).then(onFulfilled, onRejected);
+  };
+  return builder;
+}
+
+function adminDouble(resolver: QueryResolver) {
+  const queryLog: Array<{ table: string; operations: Operation[] }> = [];
+  const upload = vi.fn().mockResolvedValue({ data: { path: "uploaded" }, error: null });
+  const remove = vi.fn().mockResolvedValue({ data: [], error: null });
+  const list = vi.fn().mockResolvedValue({ data: [], error: null });
+  const download = vi.fn().mockResolvedValue({ data: null, error: null });
+  const from = vi.fn((table: string) => queryBuilder(table, resolver, queryLog));
+  const admin = {
+    from,
+    rpc: vi.fn(),
+    auth: { admin: { getUserById: vi.fn().mockResolvedValue({ data: { user: { email: "oyuncu@example.com" } }, error: null }) } },
+    storage: { from: vi.fn(() => ({ upload, remove, list, download })) },
+  };
+  return { admin, queryLog, upload, remove };
+}
+
+function operation(operations: readonly Operation[], name: string) {
+  return operations.find((entry) => entry.name === name);
+}
+
+const profile = {
+  id: "00000000-0000-4000-8000-000000000001",
+  username: "oyuncu",
+  display_name: "Örnek Oyuncu",
+  country_code: "TR",
+  city_id: "istanbul",
+  bio: "",
+  color: "#0D8BFF",
+  pattern: 0,
+  account_visibility: "public",
+  avatar_object_key: null,
+  cover_object_key: null,
+  created_at: "2026-08-27T10:00:00.000Z",
+};
+
+const privateProfile = {
+  user_id: profile.id,
+  birth_date: "2000-01-01",
+  location_visibility: "private",
+};
+
+function profileReadResult(table: string, operations: readonly Operation[]): QueryResult | null {
+  if (operation(operations, "update")) return null;
+  if (table === "profiles") return { data: profile, error: null };
+  if (table === "profile_private") return { data: privateProfile, error: null };
+  if (table === "countries") return { data: { name_tr: "Türkiye" }, error: null };
+  if (table === "cities") return { data: { name_tr: "İstanbul" }, error: null };
+  return null;
+}
+
+describe("Supabase repository production sözleşmeleri", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.decodeProfileImage.mockImplementation((value: string, options: { maxDataUrlLength: number }) => (
+      value.length > options.maxDataUrlLength
+        ? null
+        : { mimeType: "image/jpeg", bytes: Buffer.from([0xff, 0xd8, 0xff, 0xd9]), dimensions: { width: 1, height: 1 }, canonical: value }
+    ));
+  });
+
+  it("profil görseli sınırını doğrudan adapter çağrısında da uygular", async () => {
+    const double = adminDouble((table, operations) => profileReadResult(table, operations) ?? { data: null, error: null });
+    mocks.createAdmin.mockReturnValue(double.admin);
+    const oversized = `data:image/jpeg;base64,${"A".repeat(650_000)}`;
+
+    await expect(updateUser(profile.id, { avatarData: oversized })).rejects.toThrow("Profil görseli geçersiz");
+
+    expect(mocks.decodeProfileImage).toHaveBeenCalledWith(oversized, expect.objectContaining({ maxDataUrlLength: 650_000 }));
+    expect(double.upload).not.toHaveBeenCalled();
+  });
+
+  it("özel profil güncellemesi bozulursa public profili geri alıp yeni medyayı temizler", async () => {
+    let profileUpdates = 0;
+    const double = adminDouble((table, operations) => {
+      const read = profileReadResult(table, operations);
+      if (read) return read;
+      if (table === "profiles" && operation(operations, "update")) {
+        profileUpdates += 1;
+        return { data: null, error: null };
+      }
+      if (table === "profile_private" && operation(operations, "update")) {
+        return { data: null, error: { code: "P0001" } };
+      }
+      return { data: null, error: null };
+    });
+    mocks.createAdmin.mockReturnValue(double.admin);
+
+    await expect(updateUser(profile.id, { avatarData: "data:image/jpeg;base64,AA==" }))
+      .rejects.toThrow("Özel profil güncelleme tamamlanamadı");
+
+    expect(profileUpdates).toBe(2);
+    expect(double.upload).toHaveBeenCalledOnce();
+    expect(double.remove).toHaveBeenCalledWith([expect.stringMatching(new RegExp(`^${profile.id}/profile/avatar/`))]);
+  });
+
+  it("rota toplamlarını Supabase 1000 satır sınırında kesmez", async () => {
+    const double = adminDouble((table, operations) => {
+      if (table !== "route_sessions") return { data: null, error: null };
+      const from = Number(operation(operations, "range")?.args[0] ?? 0);
+      const data = from === 0
+        ? Array.from({ length: 1_000 }, () => ({ distance_m: "2", duration_seconds: 3 }))
+        : [{ distance_m: "5", duration_seconds: 7 }];
+      return { data, error: null };
+    });
+    mocks.createAdmin.mockReturnValue(double.admin);
+
+    await expect(getRouteSessionTotals(profile.id)).resolves.toEqual({
+      distanceM: 2_005,
+      durationSeconds: 3_007,
+      sessionCount: 1_001,
+    });
+    expect(double.queryLog.filter((entry) => entry.table === "route_sessions")).toHaveLength(2);
+  });
+
+  it("takip akışını tüm takip sayfalarından kurar ve cursor toplamını azaltmaz", async () => {
+    const double = adminDouble((table, operations) => {
+      if (table === "follows") {
+        const from = Number(operation(operations, "range")?.args[0] ?? 0);
+        return {
+          data: from === 0
+            ? Array.from({ length: 1_000 }, (_, index) => ({ followed_id: `followed-${index}` }))
+            : [{ followed_id: "followed-1000" }],
+          error: null,
+        };
+      }
+      if (table === "posts") {
+        const selectOptions = operation(operations, "select")?.args[1] as { head?: boolean } | undefined;
+        const authorIds = operation(operations, "in")?.args[1] as string[] | undefined;
+        return selectOptions?.head
+          ? { data: null, error: null, count: authorIds?.includes(profile.id) ? 77 : 0 }
+          : { data: [], error: null };
+      }
+      return { data: [], error: null };
+    });
+    mocks.createAdmin.mockReturnValue(double.admin);
+
+    const page = await listPostPage(profile.id, "following", {
+      cursor: { createdAt: "2026-08-27T10:00:00.000Z", id: "00000000-0000-4000-8000-000000000010" },
+      limit: 6,
+    });
+
+    expect(page).toEqual({ posts: [], nextCursor: null, total: 77 });
+    const postQueries = double.queryLog.filter((entry) => entry.table === "posts");
+    const rowQueries = postQueries.filter((entry) => !(operation(entry.operations, "select")?.args[1] as { head?: boolean } | undefined)?.head);
+    const authorChunks = rowQueries.map((entry) => operation(entry.operations, "in")?.args[1] as string[]);
+    expect(authorChunks.every((chunk) => chunk.length <= 200)).toBe(true);
+    expect(new Set(authorChunks.flat()).size).toBe(1_002);
+    const countQueries = postQueries.filter((entry) => (operation(entry.operations, "select")?.args[1] as { head?: boolean } | undefined)?.head);
+    expect(countQueries.every((entry) => !operation(entry.operations, "or"))).toBe(true);
+  });
+
+  it("eşzamanlı duplicate beğenide ikinci bildirim üretmez", async () => {
+    const double = adminDouble((table, operations) => {
+      if (table === "posts") return { data: { author_id: profile.id }, error: null };
+      if (table === "likes" && operation(operations, "upsert")) return { data: null, error: null };
+      if (table === "likes" && (operation(operations, "select")?.args[1] as { head?: boolean } | undefined)?.head) {
+        return { data: null, error: null, count: 1 };
+      }
+      return { data: null, error: null };
+    });
+    mocks.createAdmin.mockReturnValue(double.admin);
+
+    await expect(setLikeState(profile.id, "00000000-0000-4000-8000-000000000020", true))
+      .resolves.toEqual({ liked: true, count: 1 });
+    expect(double.queryLog.some((entry) => entry.table === "notifications")).toBe(false);
+  });
+
+  it("önceden tüketilmiş takip isteğini ikinci kez kabul etmez", async () => {
+    const double = adminDouble((table) => table === "follow_requests"
+      ? { data: null, error: null }
+      : { data: null, error: null });
+    mocks.createAdmin.mockReturnValue(double.admin);
+
+    await expect(resolveFollowRequest(profile.id, "00000000-0000-4000-8000-000000000030", "accept"))
+      .resolves.toBe(false);
+    expect(double.queryLog.some((entry) => entry.table === "follows")).toBe(false);
+  });
+});
