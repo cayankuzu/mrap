@@ -55,7 +55,7 @@ jobs:
           npm sbom --omit=dev --sbom-format=cyclonedx > artifacts/release/mrap-sbom.cdx.json
 
       - name: SBOM kanitini sakla
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: mrap-production-sbom
           path: artifacts/release/mrap-sbom.cdx.json
