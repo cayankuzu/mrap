@@ -2176,7 +2176,7 @@ p {
 .profile-action-label { display: inline; }
 
 @media (max-width: 900px) {
-  html,
+  html { overscroll-behavior-y: contain; }
   body {
     overscroll-behavior-y: auto;
     -webkit-overflow-scrolling: touch;

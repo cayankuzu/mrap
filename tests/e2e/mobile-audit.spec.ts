@@ -80,6 +80,30 @@ async function tapWithTouchscreen(page: Page, locator: import("@playwright/test"
   await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
 }
 
+async function dispatchNativeTwoFingerGesture(page: Page, center: { x: number; y: number }) {
+  const session = await page.context().newCDPSession(page);
+  try {
+    await session.send("Input.dispatchTouchEvent", {
+      type: "touchStart",
+      touchPoints: [
+        { x: center.x - 24, y: center.y, id: 1, radiusX: 7, radiusY: 7, force: 1 },
+        { x: center.x + 24, y: center.y, id: 2, radiusX: 7, radiusY: 7, force: 1 },
+      ],
+    });
+    await session.send("Input.dispatchTouchEvent", {
+      type: "touchMove",
+      touchPoints: [
+        { x: center.x - 42, y: center.y - 14, id: 1, radiusX: 7, radiusY: 7, force: 1 },
+        { x: center.x + 42, y: center.y + 14, id: 2, radiusX: 7, radiusY: 7, force: 1 },
+      ],
+    });
+    await page.waitForTimeout(80);
+    await session.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  } finally {
+    await session.detach();
+  }
+}
+
 async function expectMinimumTouchTarget(locator: import("@playwright/test").Locator, label: string) {
   const box = await locator.boundingBox();
   expect(box, `${label} görünür bir kutuya sahip olmalı`).not.toBeNull();
@@ -100,7 +124,7 @@ test("gerçek telefon dokunması sayfayı kaydırır ve bağlantıları etkinle�
       rootOverscroll: getComputedStyle(document.documentElement).overscrollBehaviorY,
     }));
     expect(dimensions.scrollHeight, `${path} dikey kaydırılabilir olmalı`).toBeGreaterThan(dimensions.viewportHeight + 120);
-    expect(dimensions.rootOverscroll, `${path} doğal mobil kaydırmayı kilitlememeli`).toBe("auto");
+    expect(dimensions.rootOverscroll, `${path} doğal mobil kaydırmayı korurken yerel yenilemeyi sınırlamalı`).toBe("contain");
     await dispatchNativeVerticalSwipe(page);
     await expect.poll(() => page.evaluate(() => window.scrollY), { message: `${path} gerçek touch hareketiyle kaymalı` }).toBeGreaterThan(40);
   }
@@ -113,6 +137,11 @@ test("gerçek telefon dokunması sayfayı kaydırır ve bağlantıları etkinle�
   expect(await canvas.evaluate((element) => getComputedStyle(element).touchAction)).toBe("pan-x pan-y");
   const mapBox = await canvas.boundingBox();
   expect(mapBox).not.toBeNull();
+  await dispatchNativeTwoFingerGesture(page, {
+    x: Math.round((mapBox?.x ?? 0) + (mapBox?.width ?? 0) / 2),
+    y: Math.round((mapBox?.y ?? 0) + (mapBox?.height ?? 0) / 2),
+  });
+  await expect(page.locator(".media-lightbox"), "İki parmaklı harita hareketi büyütme panelini açmamalı").toHaveCount(0);
   const beforeMapSwipe = await page.evaluate(() => window.scrollY);
   const mapStartY = Math.min((mapBox?.y ?? 0) + (mapBox?.height ?? 0) - 28, (page.viewportSize()?.height ?? 844) - 100);
   await dispatchNativeVerticalSwipe(page, {

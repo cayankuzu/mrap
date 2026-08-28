@@ -7,7 +7,7 @@ import { feature } from "@turf/helpers";
 import { Maximize2 } from "lucide-react";
 import { Map as MapLibreMap, setWorkerUrl } from "maplibre-gl";
 import { MediaLightbox } from "@/components/MediaLightbox";
-import { createDemoGeometry, MAP_LOAD_TIMEOUT_MS, OPEN_FREE_MAP_STYLE, type MapCameraState, type PreviewTerritory } from "@/lib/map-preview";
+import { createDemoGeometry, MAP_LOAD_TIMEOUT_MS, MRAP_MAPLIBRE_LOCALE, OPEN_FREE_MAP_STYLE, type MapCameraState, type PreviewTerritory } from "@/lib/map-preview";
 
 setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
 
@@ -67,6 +67,7 @@ function TerritoryMapCanvas({ territory, ownerUsername, mapView, expanded, onOpe
         maxBounds: expandedBounds(bounds),
         attributionControl: { compact: true },
         cooperativeGestures: !expanded,
+        locale: MRAP_MAPLIBRE_LOCALE,
       });
     } catch {
       const failureFrame = window.requestAnimationFrame(() => setMapError(true));
@@ -147,21 +148,48 @@ function TerritoryMapCanvas({ territory, ownerUsername, mapView, expanded, onOpe
 export function TerritoryInteractiveMap({ territory, ownerUsername, mapView, compact = false }: TerritoryInteractiveMapProps) {
   const previewRef = useRef<HTMLDivElement>(null);
   const previewPointerStartRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
+  const activePreviewPointersRef = useRef(new Set<number>());
+  const previewOpenBlockedUntilRef = useRef(0);
   const [inView, setInView] = useState(false);
   const [enlarged, setEnlarged] = useState(false);
   const openMap = useCallback(() => setEnlarged(true), []);
+  const openMapFromPreview = useCallback(() => {
+    if (Date.now() >= previewOpenBlockedUntilRef.current) openMap();
+  }, [openMap]);
 
   const previewPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     if (event.target instanceof Element && event.target.closest("button, a")) return;
+    activePreviewPointersRef.current.add(event.pointerId);
+    if (activePreviewPointersRef.current.size > 1) {
+      previewPointerStartRef.current = null;
+      previewOpenBlockedUntilRef.current = Date.now() + 700;
+      return;
+    }
     previewPointerStartRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
+  }, []);
+
+  const previewPointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const start = previewPointerStartRef.current;
+    if (!start || start.pointerId !== event.pointerId) return;
+    if (Math.hypot(event.clientX - start.x, event.clientY - start.y) > 10) {
+      previewPointerStartRef.current = null;
+      previewOpenBlockedUntilRef.current = Date.now() + 300;
+    }
   }, []);
 
   const previewPointerUp = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     const start = previewPointerStartRef.current;
     previewPointerStartRef.current = null;
+    activePreviewPointersRef.current.delete(event.pointerId);
     if (!start || start.pointerId !== event.pointerId) return;
-    if (Math.hypot(event.clientX - start.x, event.clientY - start.y) <= 10) openMap();
-  }, [openMap]);
+    if (Math.hypot(event.clientX - start.x, event.clientY - start.y) <= 10) openMapFromPreview();
+  }, [openMapFromPreview]);
+
+  const previewPointerCancel = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    activePreviewPointersRef.current.delete(event.pointerId);
+    previewPointerStartRef.current = null;
+    previewOpenBlockedUntilRef.current = Date.now() + 300;
+  }, []);
 
   useEffect(() => {
     const node = previewRef.current;
@@ -183,10 +211,11 @@ export function TerritoryInteractiveMap({ territory, ownerUsername, mapView, com
         ref={previewRef}
         className={`territory-interactive-map${compact ? " is-compact" : ""}`}
         onPointerDown={previewPointerDown}
+        onPointerMove={previewPointerMove}
         onPointerUp={previewPointerUp}
-        onPointerCancel={() => { previewPointerStartRef.current = null; }}
+        onPointerCancel={previewPointerCancel}
       >
-        {inView ? <TerritoryMapCanvas territory={territory} ownerUsername={ownerUsername} mapView={mapView} compact={compact} expanded={false} onOpen={openMap} /> : <div className="territory-map-skeleton" role="status">Harita hazırlanıyor…</div>}
+        {inView ? <TerritoryMapCanvas territory={territory} ownerUsername={ownerUsername} mapView={mapView} compact={compact} expanded={false} onOpen={openMapFromPreview} /> : <div className="territory-map-skeleton" role="status">Harita hazırlanıyor…</div>}
         <button type="button" className="map-expand-icon" onClick={openMap} aria-label={`${territory.name} etkileşimli haritasını büyüt`} aria-haspopup="dialog"><Maximize2 size={17} /></button>
         <span className="territory-map-hint">Dokunarak büyüt · iki parmakla gez</span>
       </div>

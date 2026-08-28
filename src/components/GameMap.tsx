@@ -19,7 +19,7 @@ import { clearRoutePointQueue, readRoutePointQueue, reconcileQueuedRoutePoints, 
 import { clearActiveRouteSession, persistActiveRouteSession, readActiveRouteSession } from "@/lib/game/session-recovery";
 import type { Coordinate, GameSessionSnapshot, LocationMode, LocationSample, LoopInvalidReason } from "@/lib/game/types";
 import type { AppUser, CurrentTerritory, TerritoryMapState, TerritoryPaint } from "@/lib/models";
-import { MAP_LOAD_TIMEOUT_MS, OPEN_FREE_MAP_STYLE } from "@/lib/map-preview";
+import { MAP_LOAD_TIMEOUT_MS, MRAP_MAPLIBRE_LOCALE, OPEN_FREE_MAP_STYLE } from "@/lib/map-preview";
 import { RealtimeRegionReconciler } from "@/lib/realtime/region-reconciler";
 import { viewportToRegionIds } from "@/lib/spatial/ownership-grid";
 import { territoryEngine } from "@/lib/territory/territory-engine";
@@ -611,6 +611,7 @@ export function GameMap({ user, mapState: initialMapState, demo = false }: { use
         bearing: -8,
         attributionControl: { compact: true },
         cooperativeGestures: false,
+        locale: MRAP_MAPLIBRE_LOCALE,
       });
     } catch {
       const failureFrame = window.requestAnimationFrame(() => setMapLoadFailed(true));

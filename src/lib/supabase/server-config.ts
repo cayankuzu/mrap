@@ -31,13 +31,12 @@ export class SupabaseConfigurationError extends Error {
 
 export const DEFAULT_SUPABASE_MEDIA_BUCKET = "mrap-media";
 
-const SUPABASE_MEDIA_BUCKET_PATTERN = /^[a-z0-9](?:[a-z0-9._-]{0,61}[a-z0-9])?$/;
-
 export function resolveSupabaseMediaBucket(
   environment: SupabaseServerEnvironment = process.env as SupabaseServerEnvironment,
 ) {
   const candidate = environment.SUPABASE_MEDIA_BUCKET?.trim() ?? "";
-  return SUPABASE_MEDIA_BUCKET_PATTERN.test(candidate) ? candidate : DEFAULT_SUPABASE_MEDIA_BUCKET;
+  if (!candidate || candidate === DEFAULT_SUPABASE_MEDIA_BUCKET) return DEFAULT_SUPABASE_MEDIA_BUCKET;
+  throw new SupabaseConfigurationError("SUPABASE_MEDIA_BUCKET migration sözleşmesiyle eşleşmiyor; değer mrap-media olmalı.");
 }
 
 function normalizedUrl(value: string, production: boolean) {

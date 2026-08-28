@@ -17,6 +17,33 @@ export type PreviewTerritory = {
 };
 
 export const OPEN_FREE_MAP_STYLE = "https://tiles.openfreemap.org/styles/positron";
+export const MRAP_MAPLIBRE_LOCALE = {
+  "AttributionControl.ToggleAttribution": "Harita kaynaklarını göster veya gizle",
+  "AttributionControl.MapFeedback": "Harita geri bildirimi",
+  "FullscreenControl.Enter": "Tam ekrana geç",
+  "FullscreenControl.Exit": "Tam ekrandan çık",
+  "GeolocateControl.FindMyLocation": "Konumumu bul",
+  "GeolocateControl.LocationNotAvailable": "Konum kullanılamıyor",
+  "LogoControl.Title": "MapLibre logosu",
+  "Map.Title": "Harita",
+  "Marker.Title": "Harita işareti",
+  "NavigationControl.ResetBearing": "Haritayı döndür; kuzeye sıfırlamak için dokun",
+  "NavigationControl.ZoomIn": "Yakınlaştır",
+  "NavigationControl.ZoomOut": "Uzaklaştır",
+  "Popup.Close": "Pencereyi kapat",
+  "ScaleControl.Feet": "ft",
+  "ScaleControl.Meters": "m",
+  "ScaleControl.Kilometers": "km",
+  "ScaleControl.Miles": "mil",
+  "ScaleControl.NauticalMiles": "deniz mili",
+  "GlobeControl.Enable": "Küre görünümünü aç",
+  "GlobeControl.Disable": "Küre görünümünü kapat",
+  "TerrainControl.Enable": "Arazi görünümünü aç",
+  "TerrainControl.Disable": "Arazi görünümünü kapat",
+  "CooperativeGesturesHandler.WindowsHelpText": "Haritayı yakınlaştırmak için Ctrl tuşuna basarak kaydır",
+  "CooperativeGesturesHandler.MacHelpText": "Haritayı yakınlaştırmak için ⌘ tuşuna basarak kaydır",
+  "CooperativeGesturesHandler.MobileHelpText": "Haritayı hareket ettirmek için iki parmağını kullan",
+} as const;
 const configuredMapLoadTimeoutMs = Number(process.env.NEXT_PUBLIC_MRAP_MAP_LOAD_TIMEOUT_MS);
 export const MAP_LOAD_TIMEOUT_MS = Number.isFinite(configuredMapLoadTimeoutMs) && configuredMapLoadTimeoutMs >= 5_000 && configuredMapLoadTimeoutMs <= 60_000
   ? configuredMapLoadTimeoutMs

@@ -225,8 +225,8 @@ describe("Supabase repository production sözleşmeleri", () => {
     expect(double.queryLog.some((entry) => entry.table === "follows")).toBe(false);
   });
 
-  it("medya işlemlerinde server-side Supabase bucket yapılandırmasını kullanır", async () => {
-    vi.stubEnv("SUPABASE_MEDIA_BUCKET", "mrap-media-production");
+  it("medya işlemlerinde migration ile yönetilen Supabase bucket yapılandırmasını kullanır", async () => {
+    vi.stubEnv("SUPABASE_MEDIA_BUCKET", "mrap-media");
     try {
       vi.resetModules();
       const { updateUser: updateUserWithConfiguredBucket } = await import("@/lib/supabase-repository");
@@ -236,7 +236,7 @@ describe("Supabase repository production sözleşmeleri", () => {
       await expect(updateUserWithConfiguredBucket(profile.id, { avatarData: "data:image/jpeg;base64,AA==" }))
         .resolves.toMatchObject({ id: profile.id });
 
-      expect(double.admin.storage.from).toHaveBeenCalledWith("mrap-media-production");
+      expect(double.admin.storage.from).toHaveBeenCalledWith("mrap-media");
     } finally {
       vi.unstubAllEnvs();
     }

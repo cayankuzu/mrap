@@ -43,23 +43,25 @@ describe("Supabase typed environment", () => {
     expect(() => resolveSupabaseServerConfig({ ...configured, SUPABASE_PROJECT_REF: "abcdefghijklmnopqrst" })).toThrow(SupabaseConfigurationError);
   });
 
-  it("geçerli medya bucket değerini server-side ortamdan normalize eder", () => {
-    expect(resolveSupabaseMediaBucket({ SUPABASE_MEDIA_BUCKET: "  mrap-media-production_1  " }))
-      .toBe("mrap-media-production_1");
+  it("migration tarafından oluşturulan medya bucket değerini normalize eder", () => {
+    expect(resolveSupabaseMediaBucket({ SUPABASE_MEDIA_BUCKET: "  mrap-media  " }))
+      .toBe(DEFAULT_SUPABASE_MEDIA_BUCKET);
   });
 
   it.each([
-    undefined,
-    "",
-    "   ",
+    "mrap-media-production",
     "../mrap-media",
     "mrap/media",
     "MRAP-MEDIA",
     ".mrap-media",
     "mrap-media-",
     "a".repeat(64),
-  ])("eksik veya geçersiz medya bucket değerinde güvenli varsayılanı kullanır (%s)", (value) => {
-    expect(resolveSupabaseMediaBucket({ SUPABASE_MEDIA_BUCKET: value }))
-      .toBe(DEFAULT_SUPABASE_MEDIA_BUCKET);
+  ])("migration sözleşmesi dışındaki medya bucket değerini reddeder (%s)", (value) => {
+    expect(() => resolveSupabaseMediaBucket({ SUPABASE_MEDIA_BUCKET: value }))
+      .toThrow(SupabaseConfigurationError);
+  });
+
+  it.each([undefined, "", "   "])("eksik medya bucket değerinde migration varsayılanını kullanır (%s)", (value) => {
+    expect(resolveSupabaseMediaBucket({ SUPABASE_MEDIA_BUCKET: value })).toBe(DEFAULT_SUPABASE_MEDIA_BUCKET);
   });
 });

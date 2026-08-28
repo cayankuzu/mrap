@@ -6,7 +6,7 @@ import bbox from "@turf/bbox";
 import { feature } from "@turf/helpers";
 import { Check, LocateFixed, Move, RotateCcw } from "lucide-react";
 import { Map as MapLibreMap, setWorkerUrl } from "maplibre-gl";
-import { createDemoGeometry, MAP_LOAD_TIMEOUT_MS, OPEN_FREE_MAP_STYLE, type MapCameraState, type PreviewTerritory } from "@/lib/map-preview";
+import { createDemoGeometry, MAP_LOAD_TIMEOUT_MS, MRAP_MAPLIBRE_LOCALE, OPEN_FREE_MAP_STYLE, type MapCameraState, type PreviewTerritory } from "@/lib/map-preview";
 
 setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
 
@@ -131,6 +131,7 @@ export function TerritoryFrameEditor({ territory, ownerUsername, onSave }: Terri
         attributionControl: { compact: true },
         canvasContextAttributes: { preserveDrawingBuffer: true },
         cooperativeGestures: true,
+        locale: MRAP_MAPLIBRE_LOCALE,
       });
     } catch {
       const failureFrame = window.requestAnimationFrame(() => {

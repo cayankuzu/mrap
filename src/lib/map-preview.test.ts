@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { createDemoGeometry, normalizeMapCamera } from "@/lib/map-preview";
+import { createDemoGeometry, MRAP_MAPLIBRE_LOCALE, normalizeMapCamera } from "@/lib/map-preview";
 
 describe("gönderi harita kadrajı", () => {
+  it("MapLibre kullanıcı yardım metinlerini Türkçe tutar", () => {
+    expect(MRAP_MAPLIBRE_LOCALE["CooperativeGesturesHandler.MobileHelpText"]).toBe("Haritayı hareket ettirmek için iki parmağını kullan");
+    expect(Object.values(MRAP_MAPLIBRE_LOCALE).join(" ")).not.toMatch(/\b(?:use|zoom|close|location|map)\b/i);
+  });
+
   it("geçerli kamerayı güvenli hassasiyete indirger", () => {
     expect(normalizeMapCamera({ center: [29.123456789, 40.987654321], zoom: 15.678, bearing: -12.345, pitch: 24.567 })).toEqual({
       center: [29.123457, 40.987654],
