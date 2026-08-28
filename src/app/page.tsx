@@ -17,6 +17,7 @@ import {
 import { Logo } from "@/components/Logo";
 import { MapArtwork } from "@/components/MapArtwork";
 import type { Territory } from "@/lib/data";
+import packageMetadata from "../../package.json";
 
 const heroTerritory: Territory = {
   id: "hero",
@@ -148,7 +149,7 @@ export default function LandingPage() {
         <Logo />
         <p>Gerçek dünya. Gerçek adımlar. Sana ait alanlar.</p>
         <div><Link href="/privacy">Gizlilik</Link><Link href="/terms">Koşullar</Link><Link href="/help">Yardım</Link></div>
-        <small>© 2026 mrap · MeMoDe tarafından</small>
+        <small>© 2026 mrap · MeMoDe tarafından · Sürüm {packageMetadata.version}</small>
         <small>Konum kataloğu: <a href="https://github.com/dr5hn/countries-states-cities-database" target="_blank" rel="noreferrer">Countries States Cities Database (ODbL)</a></small>
       </footer>
     </div>
