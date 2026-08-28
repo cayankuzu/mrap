@@ -66,7 +66,7 @@ function TerritoryMapCanvas({ territory, ownerUsername, mapView, expanded, onOpe
         maxZoom: maximumZoom,
         maxBounds: expandedBounds(bounds),
         attributionControl: { compact: true },
-        cooperativeGestures: false,
+        cooperativeGestures: !expanded,
       });
     } catch {
       const failureFrame = window.requestAnimationFrame(() => setMapError(true));
@@ -188,7 +188,7 @@ export function TerritoryInteractiveMap({ territory, ownerUsername, mapView, com
       >
         {inView ? <TerritoryMapCanvas territory={territory} ownerUsername={ownerUsername} mapView={mapView} compact={compact} expanded={false} onOpen={openMap} /> : <div className="territory-map-skeleton" role="status">Harita hazırlanıyor…</div>}
         <button type="button" className="map-expand-icon" onClick={openMap} aria-label={`${territory.name} etkileşimli haritasını büyüt`} aria-haspopup="dialog"><Maximize2 size={17} /></button>
-        <span className="territory-map-hint">Sürükle · dokunarak büyüt</span>
+        <span className="territory-map-hint">Dokunarak büyüt · iki parmakla gez</span>
       </div>
       <MediaLightbox open={enlarged} onClose={() => setEnlarged(false)} title={`${territory.name} · ${territory.district}`}>
         <div className="territory-interactive-lightbox">

@@ -55,10 +55,6 @@ export default function LandingPage() {
               <Link href="/register" className="hero-primary">Ücretsiz başla <ArrowRight size={19} /></Link>
               <Link href="/demo/home" className="hero-secondary"><Play size={18} fill="currentColor" /> Etkileşimli demoyu gör</Link>
             </div>
-            <div className="hero-trust">
-              <div className="avatar-stack"><span>DK</span><span>EA</span><span>MT</span><span>+2K</span></div>
-              <p><strong>2.000+ kaşif</strong><br />bugün şehrini sarıyor</p>
-            </div>
           </div>
 
           <div className="hero-visual">
@@ -77,13 +73,6 @@ export default function LandingPage() {
             <div className="floating-stat floating-stat--top"><span><Trophy size={18} /></span><div><small>Şehir sıran</small><strong>#24 <em>↑ 6</em></strong></div></div>
             <div className="floating-stat floating-stat--bottom"><span><Sparkles size={18} /></span><div><small>Yeni alan</small><strong>+0,86 km²</strong></div></div>
           </div>
-        </section>
-
-        <section className="landing-metrics" aria-label="mrap istatistikleri">
-          <div><strong>42K</strong><span>kapatılan rota</span></div>
-          <div><strong>18.4K km²</strong><span>renklendirilen alan</span></div>
-          <div><strong>64</strong><span>aktif şehir</span></div>
-          <div><strong>4.9/5</strong><span>topluluk puanı</span></div>
         </section>
 
         <section className="how-section" id="how">

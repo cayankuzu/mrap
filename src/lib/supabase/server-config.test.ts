@@ -2,7 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
-import { resolveSupabaseServerConfig, SupabaseConfigurationError } from "@/lib/supabase/server-config";
+import {
+  DEFAULT_SUPABASE_MEDIA_BUCKET,
+  resolveSupabaseMediaBucket,
+  resolveSupabaseServerConfig,
+  SupabaseConfigurationError,
+} from "@/lib/supabase/server-config";
 
 const configured = {
   MRAP_DATA_PROVIDER: "supabase",
@@ -36,5 +41,25 @@ describe("Supabase typed environment", () => {
   it("production'da HTTPS dışını ve farklı project ref'i reddeder", () => {
     expect(() => resolveSupabaseServerConfig({ ...configured, NODE_ENV: "production", NEXT_PUBLIC_SUPABASE_URL: "http://kpsiqurdxumsouimjmvc.supabase.co", SUPABASE_URL: "http://kpsiqurdxumsouimjmvc.supabase.co" })).toThrow(SupabaseConfigurationError);
     expect(() => resolveSupabaseServerConfig({ ...configured, SUPABASE_PROJECT_REF: "abcdefghijklmnopqrst" })).toThrow(SupabaseConfigurationError);
+  });
+
+  it("geçerli medya bucket değerini server-side ortamdan normalize eder", () => {
+    expect(resolveSupabaseMediaBucket({ SUPABASE_MEDIA_BUCKET: "  mrap-media-production_1  " }))
+      .toBe("mrap-media-production_1");
+  });
+
+  it.each([
+    undefined,
+    "",
+    "   ",
+    "../mrap-media",
+    "mrap/media",
+    "MRAP-MEDIA",
+    ".mrap-media",
+    "mrap-media-",
+    "a".repeat(64),
+  ])("eksik veya geçersiz medya bucket değerinde güvenli varsayılanı kullanır (%s)", (value) => {
+    expect(resolveSupabaseMediaBucket({ SUPABASE_MEDIA_BUCKET: value }))
+      .toBe(DEFAULT_SUPABASE_MEDIA_BUCKET);
   });
 });

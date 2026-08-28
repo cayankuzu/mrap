@@ -6,10 +6,16 @@ import { evaluatePullGesture } from "@/lib/pull-to-refresh";
 
 const MOBILE_QUERY = "(max-width: 900px)";
 const REFRESH_IGNORE_SELECTOR = [
+  "button",
+  "a",
+  "label",
   "input",
   "textarea",
   "select",
+  "[role='button']",
+  "[role='link']",
   "[contenteditable='true']",
+  "[data-no-pull]",
   "[data-pull-refresh-ignore]",
   ".maplibregl-map",
   ".game-map-viewport",

@@ -224,4 +224,21 @@ describe("Supabase repository production sözleşmeleri", () => {
       .resolves.toBe(false);
     expect(double.queryLog.some((entry) => entry.table === "follows")).toBe(false);
   });
+
+  it("medya işlemlerinde server-side Supabase bucket yapılandırmasını kullanır", async () => {
+    vi.stubEnv("SUPABASE_MEDIA_BUCKET", "mrap-media-production");
+    try {
+      vi.resetModules();
+      const { updateUser: updateUserWithConfiguredBucket } = await import("@/lib/supabase-repository");
+      const double = adminDouble((table, operations) => profileReadResult(table, operations) ?? { data: null, error: null });
+      mocks.createAdmin.mockReturnValue(double.admin);
+
+      await expect(updateUserWithConfiguredBucket(profile.id, { avatarData: "data:image/jpeg;base64,AA==" }))
+        .resolves.toMatchObject({ id: profile.id });
+
+      expect(double.admin.storage.from).toHaveBeenCalledWith("mrap-media-production");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
 });

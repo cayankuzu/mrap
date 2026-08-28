@@ -1,3 +1,4 @@
+import type { Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
 import { expectNoHorizontalOverflow, openRoute, watchBrowserFailures } from "./support";
 
@@ -46,12 +47,100 @@ async function dispatchPullGestureOn(target: import("@playwright/test").Locator)
   });
 }
 
+async function dispatchNativeVerticalSwipe(page: Page, coordinates?: { x: number; startY: number; endY: number }) {
+  const session = await page.context().newCDPSession(page);
+  const viewport = page.viewportSize();
+  const x = coordinates?.x ?? Math.round((viewport?.width ?? 390) / 2);
+  const startY = coordinates?.startY ?? Math.max(260, (viewport?.height ?? 844) - 144);
+  const endY = coordinates?.endY ?? 180;
+  const steps = 7;
+  try {
+    await session.send("Input.dispatchTouchEvent", {
+      type: "touchStart",
+      touchPoints: [{ x, y: startY, id: 1, radiusX: 7, radiusY: 7, force: 1 }],
+    });
+    for (let step = 1; step <= steps; step += 1) {
+      const y = Math.round(startY + (endY - startY) * (step / steps));
+      await session.send("Input.dispatchTouchEvent", {
+        type: "touchMove",
+        touchPoints: [{ x, y, id: 1, radiusX: 7, radiusY: 7, force: 1 }],
+      });
+      await page.waitForTimeout(24);
+    }
+    await session.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  } finally {
+    await session.detach();
+  }
+}
+
+async function tapWithTouchscreen(page: Page, locator: import("@playwright/test").Locator) {
+  await locator.scrollIntoViewIfNeeded();
+  const box = await locator.boundingBox();
+  if (!box) throw new Error("Dokunulacak öğenin görünür kutusu bulunamadı.");
+  await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+}
+
 async function expectMinimumTouchTarget(locator: import("@playwright/test").Locator, label: string) {
   const box = await locator.boundingBox();
   expect(box, `${label} görünür bir kutuya sahip olmalı`).not.toBeNull();
   expect(box?.width ?? 0, `${label} en az 44px geniş olmalı`).toBeGreaterThanOrEqual(44);
   expect(box?.height ?? 0, `${label} en az 44px yüksek olmalı`).toBeGreaterThanOrEqual(44);
 }
+
+test("gerçek telefon dokunması sayfayı kaydırır ve bağlantıları etkinleştirir", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "mobile-390x844", "Doğal dokunmatik kaydırma orta mobil profilde bir kez doğrulanır.");
+  const health = watchBrowserFailures(page);
+
+  for (const path of ["/", "/demo/home", "/demo/explore", "/demo/profile"]) {
+    await page.goto(path, { waitUntil: "networkidle" });
+    await page.evaluate(() => window.scrollTo(0, 0));
+    const dimensions = await page.evaluate(() => ({
+      viewportHeight: window.innerHeight,
+      scrollHeight: document.scrollingElement?.scrollHeight ?? 0,
+      rootOverscroll: getComputedStyle(document.documentElement).overscrollBehaviorY,
+    }));
+    expect(dimensions.scrollHeight, `${path} dikey kaydırılabilir olmalı`).toBeGreaterThan(dimensions.viewportHeight + 120);
+    expect(dimensions.rootOverscroll, `${path} doğal mobil kaydırmayı kilitlememeli`).toBe("auto");
+    await dispatchNativeVerticalSwipe(page);
+    await expect.poll(() => page.evaluate(() => window.scrollY), { message: `${path} gerçek touch hareketiyle kaymalı` }).toBeGreaterThan(40);
+  }
+
+  await page.goto("/demo/explore", { waitUntil: "networkidle" });
+  const miniMap = page.locator(".territory-interactive-map").first();
+  await miniMap.scrollIntoViewIfNeeded();
+  const canvas = miniMap.locator(".maplibregl-canvas");
+  await expect(canvas).toBeVisible();
+  expect(await canvas.evaluate((element) => getComputedStyle(element).touchAction)).toBe("pan-x pan-y");
+  const mapBox = await canvas.boundingBox();
+  expect(mapBox).not.toBeNull();
+  const beforeMapSwipe = await page.evaluate(() => window.scrollY);
+  const mapStartY = Math.min((mapBox?.y ?? 0) + (mapBox?.height ?? 0) - 28, (page.viewportSize()?.height ?? 844) - 100);
+  await dispatchNativeVerticalSwipe(page, {
+    x: Math.round((mapBox?.x ?? 0) + (mapBox?.width ?? 0) / 2),
+    startY: Math.round(mapStartY),
+    endY: Math.max(90, Math.round(mapStartY - 240)),
+  });
+  await expect.poll(() => page.evaluate(() => window.scrollY), { message: "Mini harita üzerindeki tek parmak hareketi akışı kaydırmalı" }).toBeGreaterThan(beforeMapSwipe + 30);
+
+  await page.goto("/", { waitUntil: "networkidle" });
+  const primaryAction = page.locator(".hero-actions a").first();
+  await tapWithTouchscreen(page, primaryAction);
+  await page.waitForURL(/\/register$/);
+
+  await page.goto("/demo/home", { waitUntil: "networkidle" });
+  const commentsButton = page.locator("article.post-card").first().locator(".post-actions button").nth(1);
+  await tapWithTouchscreen(page, commentsButton);
+  const commentsDialog = page.locator(".post-comments-dialog");
+  await expect(commentsDialog).toBeVisible();
+  await tapWithTouchscreen(page, commentsDialog.locator("header button"));
+  await expect(commentsDialog).toBeHidden();
+  expect(await page.evaluate(() => getComputedStyle(document.body).overflowY)).not.toBe("hidden");
+
+  const exploreNavigation = page.locator('.bottom-nav a[href="/demo/explore"]');
+  await tapWithTouchscreen(page, exploreNavigation);
+  await page.waitForURL(/\/demo\/explore$/);
+  await health.assertClean();
+});
 
 test("bütün mobil ekranlar taşmadan açılır ve sabit gezinme kullanılabilir kalır", async ({ page }, testInfo) => {
   const health = watchBrowserFailures(page);

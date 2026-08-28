@@ -130,7 +130,7 @@ export function TerritoryFrameEditor({ territory, ownerUsername, onSave }: Terri
         bearing: 0,
         attributionControl: { compact: true },
         canvasContextAttributes: { preserveDrawingBuffer: true },
-        cooperativeGestures: false,
+        cooperativeGestures: true,
       });
     } catch {
       const failureFrame = window.requestAnimationFrame(() => {

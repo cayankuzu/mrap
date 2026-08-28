@@ -37,13 +37,14 @@ import { UserIdentityConflictError, type UserRow } from "@/lib/repository-contra
 import type { RecordRouteSessionInput } from "@/lib/route-session-store";
 import { canViewConnectionList } from "@/lib/social-access";
 import { createMrapSupabaseAdminClient } from "@/lib/supabase/admin-client";
+import { resolveSupabaseMediaBucket } from "@/lib/supabase/server-config";
 import { normalizeEmail, normalizeUsername } from "@/lib/validation";
 import { escapeSqlLike, normalizeUserSearchText } from "@/lib/user-search";
 import { userMediaReference } from "@/lib/user-media-reference";
 import { PROFILE_IMAGE_DATA_URL_MAX_LENGTH } from "@/server/http/api-security";
 import { decodeSanitizedImageDataUrl, sanitizeImageDataUrl, sanitizeImageDataUrls } from "@/server/http/media-validation";
 
-const MEDIA_BUCKET = "mrap-media";
+const MEDIA_BUCKET = resolveSupabaseMediaBucket();
 const PRODUCTION_WORLD_SLUG = "world-main";
 const postImageMimeTypes = new Set(["image/jpeg"] as const);
 const mapSnapshotMimeTypes = new Set(["image/jpeg", "image/png"] as const);

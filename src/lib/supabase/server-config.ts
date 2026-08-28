@@ -8,6 +8,7 @@ export type SupabaseServerEnvironment = Readonly<{
   SUPABASE_URL?: string;
   SUPABASE_SECRET_KEY?: string;
   SUPABASE_PROJECT_REF?: string;
+  SUPABASE_MEDIA_BUCKET?: string;
 }>;
 
 export type SupabaseServerConfig =
@@ -26,6 +27,17 @@ export class SupabaseConfigurationError extends Error {
     super(message);
     this.name = "SupabaseConfigurationError";
   }
+}
+
+export const DEFAULT_SUPABASE_MEDIA_BUCKET = "mrap-media";
+
+const SUPABASE_MEDIA_BUCKET_PATTERN = /^[a-z0-9](?:[a-z0-9._-]{0,61}[a-z0-9])?$/;
+
+export function resolveSupabaseMediaBucket(
+  environment: SupabaseServerEnvironment = process.env as SupabaseServerEnvironment,
+) {
+  const candidate = environment.SUPABASE_MEDIA_BUCKET?.trim() ?? "";
+  return SUPABASE_MEDIA_BUCKET_PATTERN.test(candidate) ? candidate : DEFAULT_SUPABASE_MEDIA_BUCKET;
 }
 
 function normalizedUrl(value: string, production: boolean) {
