@@ -1,9 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import type { Feature, FeatureCollection, LineString, MultiPolygon, Point, Polygon } from "geojson";
-import turfArea from "@turf/area";
-import { feature } from "@turf/helpers";
+import type { FeatureCollection, LineString, Point, Polygon } from "geojson";
 import { GeoJSONSource, Map as MapLibreMap, Popup, setWorkerUrl, type MapLayerMouseEvent, type MapMouseEvent } from "maplibre-gl";
 import { Check, ChevronDown, ChevronRight, Crosshair, EyeOff, Flag, Footprints, Gauge, MapPin, Navigation, Pause, Play, Radio, RotateCcw, Route, ShieldCheck, Square, Timer, X, Zap } from "lucide-react";
 import { ColorPalette } from "@/components/ColorPalette";
@@ -18,11 +16,11 @@ import { locationCaptureDisposition, requiresOnlineSegmentBoundary } from "@/lib
 import { clearRoutePointQueue, readRoutePointQueue, reconcileQueuedRoutePoints, writeRoutePointQueue, type RoutePointQueueWriteResult } from "@/lib/game/route-point-queue";
 import { clearActiveRouteSession, persistActiveRouteSession, readActiveRouteSession } from "@/lib/game/session-recovery";
 import type { Coordinate, GameSessionSnapshot, LocationMode, LocationSample, LoopInvalidReason } from "@/lib/game/types";
-import type { AppUser, CurrentTerritory, TerritoryMapState, TerritoryPaint } from "@/lib/models";
+import type { AppUser, TerritoryMapState } from "@/lib/models";
 import { MAP_LOAD_TIMEOUT_MS, MRAP_MAPLIBRE_LOCALE, OPEN_FREE_MAP_STYLE } from "@/lib/map-preview";
 import { RealtimeRegionReconciler } from "@/lib/realtime/region-reconciler";
 import { viewportToRegionIds } from "@/lib/spatial/ownership-grid";
-import { territoryEngine } from "@/lib/territory/territory-engine";
+import { applyLocalTerritoryClaim, mergeTerritoryMapPatch, territoryMapCollections } from "@/lib/territory/territory-map-state";
 import { territoryProfilePath } from "@/lib/territory-profile-path";
 import { formatMessage } from "@/i18n/format";
 import { useI18n } from "@/i18n/I18nProvider";
@@ -113,23 +111,6 @@ function browserIsOnline() {
   return navigator.onLine !== false;
 }
 
-function mapCollections(state: TerritoryMapState) {
-  const ownership: Feature<Polygon | MultiPolygon>[] = [];
-  const boundaries: Feature<LineString>[] = [];
-  const paints: Feature<Polygon | MultiPolygon>[] = [];
-  for (const territory of state.territories) {
-    ownership.push({ type: "Feature", properties: { color: territory.color, username: territory.ownerUsername, userId: territory.userId, pattern: territory.pattern, areaM2: territory.areaM2 }, geometry: territory.geometry });
-    const rings = territory.geometry.type === "Polygon" ? [territory.geometry.coordinates[0]] : territory.geometry.coordinates.map((part) => part[0]);
-    for (const ring of rings) boundaries.push({ type: "Feature", properties: { color: territory.color, username: territory.ownerUsername }, geometry: { type: "LineString", coordinates: ring } });
-  }
-  for (const paint of state.paints) paints.push({ type: "Feature", properties: { color: paint.color, userId: paint.userId }, geometry: paint.geometry });
-  return {
-    ownership: { type: "FeatureCollection", features: ownership } as FeatureCollection<Polygon | MultiPolygon>,
-    boundaries: { type: "FeatureCollection", features: boundaries } as FeatureCollection<LineString>,
-    paints: { type: "FeatureCollection", features: paints } as FeatureCollection<Polygon | MultiPolygon>,
-  };
-}
-
 const diagnosticLabels: Record<LoopInvalidReason, string> = {
   TOO_FEW_POINTS: "Döngü için daha fazla yön değiştir.",
   TOO_SHORT: "Temas bulundu; rota bölümü henüz çok kısa.",
@@ -174,6 +155,7 @@ export function GameMap({ user, mapState: initialMapState, demo = false }: { use
   const [mapReady, setMapReady] = useState(false);
   const [mapLoadFailed, setMapLoadFailed] = useState(false);
   const [mapRetryKey, setMapRetryKey] = useState(0);
+  const territoryStateRef = useRef(initialMapState);
   const [territoryState, setTerritoryState] = useState(initialMapState);
   const [visibleRegionIds, setVisibleRegionIds] = useState<string[]>([]);
   const [authoritativeWorldId, setAuthoritativeWorldId] = useState(PRODUCTION_WORLD_ID);
@@ -243,11 +225,17 @@ export function GameMap({ user, mapState: initialMapState, demo = false }: { use
     : localTrackingActive && (authoritativeTrackingActive || authoritativeUiState === "PAUSED_OFFLINE"));
 
   const setMapStateSources = useCallback((state: TerritoryMapState) => {
-    const collections = mapCollections(state);
+    const collections = territoryMapCollections(state);
     (mapRef.current?.getSource("territories") as GeoJSONSource | undefined)?.setData(collections.ownership);
     (mapRef.current?.getSource("territory-boundaries") as GeoJSONSource | undefined)?.setData(collections.boundaries);
     (mapRef.current?.getSource("territory-paints") as GeoJSONSource | undefined)?.setData(collections.paints);
   }, []);
+
+  const replaceTerritoryState = useCallback((state: TerritoryMapState) => {
+    territoryStateRef.current = state;
+    setTerritoryState(state);
+    setMapStateSources(state);
+  }, [setMapStateSources]);
 
   const updateLiveSources = useCallback((snapshot: GameSessionSnapshot, currentPosition: Coordinate) => {
     const map = mapRef.current;
@@ -685,7 +673,7 @@ export function GameMap({ user, mapState: initialMapState, demo = false }: { use
         mapLoadTimer = null;
       }
       setMapLoadFailed(false);
-      const collections = mapCollections(initialMapState);
+      const collections = territoryMapCollections(territoryStateRef.current);
       map.addSource("territories", { type: "geojson", data: collections.ownership });
       map.addSource("territory-paints", { type: "geojson", data: collections.paints });
       map.addSource("territory-boundaries", { type: "geojson", data: collections.boundaries });
@@ -739,7 +727,7 @@ export function GameMap({ user, mapState: initialMapState, demo = false }: { use
       map.remove();
       if (mapRef.current === map) mapRef.current = null;
     };
-  }, [demo, initialMapState, mapRetryKey, user.color, user.username]);
+  }, [demo, mapRetryKey, user.color, user.username]);
 
   useEffect(() => {
     if (demo || !runtimeActive || !networkOnline || !mapReady || visibleRegionIds.length === 0) return;
@@ -797,8 +785,7 @@ export function GameMap({ user, mapState: initialMapState, demo = false }: { use
           return Number.isSafeInteger(version) && version >= reconciler.version(regionId) && !reconciler.isDesynced(regionId);
         });
         if (snapshotIsCurrent && snapshotEpoch === confirmedMapEpochRef.current) {
-          setTerritoryState(snapshot.mapState);
-          setMapStateSources(snapshot.mapState);
+          replaceTerritoryState(snapshot.mapState);
           if (authoritativeMachineRef.current.state === "RESYNCING_MAP") transitionAuthoritative("SYNCED");
           if (authoritativeMachineRef.current.state === "TRACKING" && authoritativeCandidateRef.current) transitionAuthoritative("LOOP_DETECTED");
         }
@@ -855,7 +842,7 @@ export function GameMap({ user, mapState: initialMapState, demo = false }: { use
       if (requestRegionSnapshotRef.current === requestSnapshot) requestRegionSnapshotRef.current = null;
       if (snapshotTimer !== null) window.clearTimeout(snapshotTimer);
     };
-  }, [authoritativeWorldId, demo, mapReady, networkOnline, runtimeActive, setMapStateSources, transitionAuthoritative, visibleRegionIds]);
+  }, [authoritativeWorldId, demo, mapReady, networkOnline, replaceTerritoryState, runtimeActive, transitionAuthoritative, visibleRegionIds]);
 
   useEffect(() => {
     const syncRuntime = () => {
@@ -1354,13 +1341,9 @@ export function GameMap({ user, mapState: initialMapState, demo = false }: { use
     setClaimNotice(null);
 
     if (demo) {
-      const previewState = applyLocalClaim(territoryState, user, loop.polygon, selectedColor);
-      setTerritoryState(previewState);
-      setMapStateSources(previewState);
-      const existing = territoryState.territories.find((territory) => territory.userId === user.id)?.geometry ?? null;
-      const unique = territoryEngine.calculateUniqueArea(existing, loop.polygon);
-      const overlapM2 = territoryEngine.calculateOverlap(existing, loop.polygon);
-      setClaimNotice({ uniqueM2: unique.newlyAddedAreaM2, overlapM2, totalM2: unique.afterM2 });
+      const claim = applyLocalTerritoryClaim(territoryStateRef.current, user, loop.polygon, selectedColor);
+      replaceTerritoryState(claim.mapState);
+      setClaimNotice({ uniqueM2: claim.newlyAddedAreaM2, overlapM2: claim.overlapAreaM2, totalM2: claim.totalAreaM2 });
       const next = sessionEngine.claimSucceeded();
       setSession(next);
       updateLiveSources(next, positionRef.current);
@@ -1429,8 +1412,7 @@ export function GameMap({ user, mapState: initialMapState, demo = false }: { use
       const acceptedEvent = payload.result.status === "partially_accepted" ? "PARTIAL" : "ACCEPT";
       transitionAuthoritative(acceptedEvent);
       confirmedMapEpochRef.current += 1;
-      setTerritoryState(payload.mapState);
-      setMapStateSources(payload.mapState);
+      replaceTerritoryState(mergeTerritoryMapPatch(territoryStateRef.current, payload.mapState));
       requestRegionSnapshotRef.current?.();
       setClaimNotice({
         uniqueM2: payload.result.newlyClaimedAreaM2 + payload.result.capturedFromOthersAreaM2,
@@ -1766,23 +1748,4 @@ export function GameMap({ user, mapState: initialMapState, demo = false }: { use
       <div className="map-privacy-pill"><EyeOff size={14} /> Sahiplik anlık; canlı konum yalnızca sende.</div>
     </section>
   );
-}
-
-function applyLocalClaim(state: TerritoryMapState, user: AppUser, incoming: Polygon, color: string): TerritoryMapState {
-  const own = state.territories.find((territory) => territory.userId === user.id) ?? null;
-  const ownership = territoryEngine.calculateUniqueArea(own?.geometry ?? null, incoming);
-  const territories: CurrentTerritory[] = [];
-  for (const territory of state.territories) {
-    if (territory.userId === user.id) continue;
-    const remaining = territoryEngine.applyEnemyCapture(territory.geometry, incoming);
-    if (remaining) territories.push({ ...territory, geometry: remaining, areaM2: turfArea(feature(remaining)), updatedAt: new Date().toISOString() });
-  }
-  territories.push({ userId: user.id, ownerUsername: user.username, geometry: ownership.geometry, areaM2: ownership.afterM2, color, pattern: user.pattern, updatedAt: new Date().toISOString() });
-  const paints: TerritoryPaint[] = [];
-  for (const paint of state.paints) {
-    const remaining = territoryEngine.subtractPaint(paint.geometry, incoming);
-    if (remaining) paints.push({ ...paint, geometry: remaining });
-  }
-  paints.push({ id: `demo-paint-${Date.now()}`, userId: user.id, geometry: incoming, color, updatedAt: new Date().toISOString() });
-  return { territories, paints };
 }

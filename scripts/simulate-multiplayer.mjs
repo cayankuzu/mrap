@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import legalPolicy from "../src/config/legal-policy.json" with { type: "json" };
 
-const baseUrl = (process.env.MRAP_SIMULATOR_BASE_URL || "http://localhost:3000").replace(/\/$/, "");
+const baseUrl = (process.env.MRAP_SIMULATOR_BASE_URL || "http://127.0.0.1:3100").replace(/\/$/, "");
 const latencyMs = Math.max(0, Number(process.env.MRAP_SIMULATOR_LATENCY_MS || 0));
 const packetLoss = Math.min(0.9, Math.max(0, Number(process.env.MRAP_SIMULATOR_PACKET_LOSS || 0)));
 const password = "Guvenli12345";

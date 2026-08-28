@@ -9,10 +9,13 @@
   },
   "scripts": {
     "predev": "node ./scripts/copy-maplibre-worker.mjs",
-    "dev": "next dev",
+    "dev": "next dev --webpack --hostname 127.0.0.1 --port 3100",
+    "predev:supabase": "node ./scripts/copy-maplibre-worker.mjs",
+    "dev:supabase": "node ./scripts/dev-supabase.mjs",
     "prebuild": "node ./scripts/copy-maplibre-worker.mjs",
     "build": "next build",
     "start": "next start",
+    "pretypecheck": "next typegen",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -28,9 +31,13 @@
     "smoke:product": "node ./scripts/smoke-local-product.mjs",
     "supabase:check": "node ./scripts/check-supabase-contract.mjs",
     "supabase:check:required": "node ./scripts/check-supabase-contract.mjs --require-remote",
+    "supabase:check:connected": "node ./scripts/check-supabase-connected.mjs",
+    "supabase:auth:smoke": "node ./scripts/smoke-supabase-auth-guard.mjs",
+    "vercel:sync:supabase": "node ./scripts/sync-vercel-supabase.mjs",
     "check": "npm run typecheck && npm run lint && npm run test"
   },
   "dependencies": {
+    "@countrystatecity/countries": "^1.0.9",
     "@supabase/ssr": "^0.12.5",
     "@supabase/supabase-js": "^2.112.4",
     "@turf/area": "^7.4.0",

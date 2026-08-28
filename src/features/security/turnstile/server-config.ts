@@ -2,7 +2,7 @@ import "server-only";
 
 export const TURNSTILE_SITEVERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
 
-export type TurnstileAction = "register" | "password_reset";
+export type TurnstileAction = "register" | "password_reset" | "resend_verification";
 
 export type TurnstileServerConfig =
   | Readonly<{ enabled: false }>

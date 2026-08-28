@@ -11,5 +11,5 @@ export function resolvePublicOrigin(environment: PublicOriginEnvironment = proce
   const vercelHost = environment.VERCEL_PROJECT_PRODUCTION_URL?.trim() || environment.VERCEL_URL?.trim();
   if (vercelHost) return new URL(`https://${vercelHost}`).origin;
 
-  return "http://localhost:3000";
+  return "http://127.0.0.1:3100";
 }

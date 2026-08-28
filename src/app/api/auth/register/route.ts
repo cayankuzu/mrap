@@ -9,9 +9,10 @@ import { isValidEmail, isValidUsername, normalizeEmail, normalizeUsername, parse
 import { isEligibleBirthDate } from "@/lib/age-policy";
 import { hasCurrentLegalConsent } from "@/lib/legal-consent";
 import { turnstileFailureStatus, verifyTurnstileMutation } from "@/features/security/turnstile/verify-turnstile";
-import { registerSupabaseAccount } from "@/lib/supabase/auth-operations";
+import { EmailDeliveryUnavailableError, registerSupabaseAccount } from "@/lib/supabase/auth-operations";
 import { supabaseProviderEnabled } from "@/lib/supabase/server-config";
 import { resolvePublicOrigin } from "@/lib/public-origin";
+import { resolveWorldLocation } from "@/lib/world-locations";
 
 export async function POST(request: Request) {
   const policy = API_RATE_LIMITS.authRegister;
@@ -27,7 +28,7 @@ export async function POST(request: Request) {
     const birthDate = String(body.birthDate ?? "");
     const countryCode = String(body.countryCode ?? "").trim().toUpperCase();
     const cityId = String(body.cityId ?? "").trim();
-    const location = resolveLocation(countryCode, cityId);
+    const location = resolveLocation(countryCode, cityId) ?? await resolveWorldLocation(countryCode, cityId);
     const birth = parseIsoCalendarDate(birthDate);
 
     if (!hasCurrentLegalConsent(body)) return noStoreJson({ error: "Güncel kullanım koşulları ve gizlilik politikasını kabul etmelisin." }, { status: 400 });
@@ -61,14 +62,22 @@ export async function POST(request: Request) {
           birthDate,
           countryCode,
           cityId,
+          country: location.country,
+          city: location.city,
           color,
           legalConsent: { termsVersion: String(body.termsVersion), privacyVersion: String(body.privacyVersion) },
-          emailRedirectTo: `${resolvePublicOrigin()}/auth/callback?next=${encodeURIComponent("/home")}`,
+          emailRedirectTo: `${resolvePublicOrigin()}/auth/callback?flow=signup`,
         });
         return noStoreJson(registration, { status: 201 });
       } catch (error) {
         if (error instanceof UserIdentityConflictError) {
           return noStoreJson({ error: error.field === "email" ? "Bu e-posta zaten kayıtlı." : "Bu kullanıcı adı alınmış." }, { status: 409 });
+        }
+        if (error instanceof EmailDeliveryUnavailableError) {
+          return noStoreJson({
+            code: "EMAIL_DELIVERY_UNAVAILABLE",
+            error: "Hesap doğrulama e-postası şu anda gönderilemiyor. E-posta hizmeti bağlantısı kontrol edildikten sonra yeniden dene.",
+          }, { status: 503 });
         }
         throw error;
       }

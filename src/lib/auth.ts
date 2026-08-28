@@ -79,6 +79,10 @@ export async function getCurrentUser() {
     const client = await createMrapSupabaseServerClient();
     const { data, error } = await client.auth.getUser();
     if (error || !data.user) return null;
+    if (!data.user.email_confirmed_at) {
+      await client.auth.signOut();
+      return null;
+    }
     const row = await findUserRowById(data.user.id);
     const user = row ? await toPublicUser(row) : null;
     return user ? { ...user, email: data.user.email ?? row?.email ?? "" } : null;

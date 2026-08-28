@@ -30,10 +30,26 @@ function initialsFor(displayName: string) {
   return displayName.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toLocaleUpperCase("tr-TR");
 }
 
+function worldLocationFromInput(value: {
+  countryCode?: unknown;
+  cityId?: unknown;
+  country?: unknown;
+  city?: unknown;
+}) {
+  if (typeof value.countryCode !== "string" || !/^[A-Z]{2}$/.test(value.countryCode)) return null;
+  if (typeof value.cityId !== "string" || !/^csc:[A-Z]{2}:[^:]+:\d+$/.test(value.cityId)) return null;
+  if (!value.cityId.startsWith(`csc:${value.countryCode}:`)) return null;
+  if (typeof value.country !== "string" || value.country.trim().length < 2 || value.country.length > 80) return null;
+  if (typeof value.city !== "string" || value.city.trim().length < 1 || value.city.length > 120) return null;
+  return { country: value.country.trim(), city: value.city.trim() };
+}
+
 function safeStoredUser(value: unknown): AppUser {
   if (!value || typeof value !== "object") return DEFAULT_DEMO_USER;
   const stored = value as Partial<AppUser>;
-  const location = typeof stored.countryCode === "string" && typeof stored.cityId === "string" ? resolveLocation(stored.countryCode, stored.cityId) : null;
+  const location = typeof stored.countryCode === "string" && typeof stored.cityId === "string"
+    ? resolveLocation(stored.countryCode, stored.cityId) ?? worldLocationFromInput(stored)
+    : null;
   const displayName = typeof stored.displayName === "string" && stored.displayName.trim().length >= 2 ? stored.displayName.trim().slice(0, 60) : DEFAULT_DEMO_USER.displayName;
   const username = typeof stored.username === "string" && isValidUsername(stored.username) ? normalizeUsername(stored.username) : DEFAULT_DEMO_USER.username;
   const color = normalizeRouteColor(stored.color) ?? DEFAULT_DEMO_USER.color;
@@ -61,7 +77,7 @@ function validateProfile(input: ProfileSaveInput) {
   const displayName = input.displayName.trim();
   const username = normalizeUsername(input.username);
   const bio = input.bio.trim();
-  const location = resolveLocation(input.countryCode, input.cityId);
+  const location = resolveLocation(input.countryCode, input.cityId) ?? worldLocationFromInput(input);
   const birth = /^\d{4}-\d{2}-\d{2}$/.test(input.birthDate) ? new Date(`${input.birthDate}T00:00:00Z`) : null;
   const today = new Date();
   let age = birth && !Number.isNaN(birth.getTime()) ? today.getUTCFullYear() - birth.getUTCFullYear() : -1;

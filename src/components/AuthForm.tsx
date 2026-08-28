@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FormEvent, useState } from "react";
-import { AlertCircle, ArrowRight, AtSign, CalendarDays, Check, Eye, EyeOff, Globe2, LockKeyhole, Mail, MapPin, UserRound } from "lucide-react";
+import { FormEvent, useEffect, useState } from "react";
+import { AlertCircle, ArrowRight, AtSign, CalendarDays, Check, Eye, EyeOff, LockKeyhole, Mail, RefreshCw, UserRound } from "lucide-react";
 import { AccountAvailabilityHint } from "@/components/AccountAvailabilityHint";
 import { ColorPalette } from "@/components/ColorPalette";
-import { citiesForCountry, DEFAULT_CITY_ID, DEFAULT_COUNTRY_CODE, LOCATION_OPTIONS, ROUTE_COLORS } from "@/lib/app-config";
+import { LocationFields } from "@/components/LocationFields";
+import { DEFAULT_CITY_ID, DEFAULT_COUNTRY_CODE, ROUTE_COLORS } from "@/lib/app-config";
 import { CONTENT_LIMITS } from "@/lib/content-limits";
 import { useAccountAvailability } from "@/lib/use-account-availability";
 import { normalizeProtectedReturnPath } from "@/lib/safe-navigation";
@@ -26,11 +27,20 @@ export function AuthForm({ mode, initialResetToken = "", initialNext }: { mode: 
   const [color, setColor] = useState<string>(ROUTE_COLORS[0]);
   const [countryCode, setCountryCode] = useState(DEFAULT_COUNTRY_CODE);
   const [cityId, setCityId] = useState(DEFAULT_CITY_ID);
+  const [countryLabel, setCountryLabel] = useState("Türkiye");
+  const [cityLabel, setCityLabel] = useState("İstanbul");
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
   const [sent, setSent] = useState(false);
   const [requestSent, setRequestSent] = useState(false);
   const [registrationPendingVerification, setRegistrationPendingVerification] = useState(false);
+  const [verificationEmail, setVerificationEmail] = useState("");
+  const [verificationPassword, setVerificationPassword] = useState("");
+  const [verificationStatus, setVerificationStatus] = useState("");
+  const [verificationPending, setVerificationPending] = useState(false);
+  const [verificationTurnstileToken, setVerificationTurnstileToken] = useState<string | null>(null);
+  const [verificationTurnstileResetKey, setVerificationTurnstileResetKey] = useState(0);
+  const [resendCooldown, setResendCooldown] = useState(0);
   const [resetToken, setResetToken] = useState(initialResetToken);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const [turnstileResetKey, setTurnstileResetKey] = useState(0);
@@ -39,14 +49,22 @@ export function AuthForm({ mode, initialResetToken = "", initialNext }: { mode: 
   const turnstileRequired = turnstileProtected && turnstileIsConfiguredForClient();
   const usernameAvailability = useAccountAvailability("username", username, mode === "register");
   const emailAvailability = useAccountAvailability("email", email, mode === "register");
-  const registerIdentityReady = mode !== "register" || (usernameAvailability === "available" && emailAvailability === "available");
+  const registerIdentityReady = mode !== "register"
+    || (usernameAvailability === "available" && emailAvailability === "available" && Boolean(cityId));
   const birthDateBounds = getBirthDateInputBounds();
+
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const timer = window.setInterval(() => setResendCooldown((value) => Math.max(0, value - 1)), 1_000);
+    return () => window.clearInterval(timer);
+  }, [resendCooldown]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setPending(true);
     setError("");
     const values = new FormData(event.currentTarget);
+    const submittedPassword = String(values.get("password") ?? "");
     const endpoint = mode === "register" ? "/api/auth/register" : mode === "forgot" ? "/api/auth/reset" : "/api/auth/login";
     const payload = mode === "register"
       ? {
@@ -63,13 +81,23 @@ export function AuthForm({ mode, initialResetToken = "", initialNext }: { mode: 
 
     try {
       const response = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-      const result = await response.json() as { error?: string; developmentToken?: string; completed?: boolean; requiresEmailVerification?: boolean };
-      if (!response.ok) throw new Error(result.error || copy.auth.genericError);
+      const result = await response.json() as { error?: string; code?: string; developmentToken?: string; completed?: boolean; requiresEmailVerification?: boolean };
+      if (!response.ok) {
+        if (mode === "login" && result.code === "EMAIL_NOT_VERIFIED") {
+          setVerificationEmail(email);
+          setVerificationPassword(submittedPassword);
+          setRegistrationPendingVerification(true);
+          return;
+        }
+        throw new Error(result.error || copy.auth.genericError);
+      }
       if (mode === "forgot") {
         if (resetConfirm || result.completed) setSent(true);
         else if (result.developmentToken) setResetToken(result.developmentToken);
         else setRequestSent(true);
       } else if (mode === "register" && result.requiresEmailVerification) {
+        setVerificationEmail(email);
+        setVerificationPassword(submittedPassword);
         setRegistrationPendingVerification(true);
       } else {
         router.push(mode === "login" ? normalizeProtectedReturnPath(initialNext) : "/home");
@@ -80,6 +108,57 @@ export function AuthForm({ mode, initialResetToken = "", initialNext }: { mode: 
       if (turnstileRequired) setTurnstileResetKey((value) => value + 1);
     } finally {
       setPending(false);
+    }
+  }
+
+  async function resendVerification() {
+    if (!verificationEmail || resendCooldown > 0 || verificationPending) return;
+    setVerificationPending(true);
+    setVerificationStatus("");
+    try {
+      const response = await fetch("/api/auth/resend-verification", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: verificationEmail, turnstileToken: verificationTurnstileToken }),
+      });
+      const result = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(result.error || "Doğrulama e-postası gönderilemedi.");
+      setVerificationStatus("Doğrulama e-postası yeniden istendi. Gelen kutunu ve spam klasörünü kontrol et.");
+      setResendCooldown(60);
+      setVerificationTurnstileResetKey((value) => value + 1);
+    } catch (requestError) {
+      setVerificationStatus(requestError instanceof Error ? requestError.message : "Doğrulama e-postası gönderilemedi.");
+      setVerificationTurnstileResetKey((value) => value + 1);
+    } finally {
+      setVerificationPending(false);
+    }
+  }
+
+  async function checkVerification() {
+    if (verificationPending || !verificationEmail || !verificationPassword) return;
+    setVerificationPending(true);
+    setVerificationStatus("");
+    try {
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: verificationEmail, password: verificationPassword, remember: false }),
+      });
+      const result = await response.json() as { error?: string; code?: string };
+      if (response.ok) {
+        setVerificationPassword("");
+        router.push("/home");
+        router.refresh();
+        return;
+      }
+      if (result.code !== "EMAIL_NOT_VERIFIED") {
+        throw new Error(result.error || "Doğrulama durumu şu anda kontrol edilemedi.");
+      }
+      setVerificationStatus("E-posta henüz doğrulanmadı. E-postadaki bağlantıyı açtıktan sonra tekrar kontrol et.");
+    } catch (requestError) {
+      setVerificationStatus(requestError instanceof Error ? requestError.message : "Doğrulama durumu şu anda kontrol edilemedi.");
+    } finally {
+      setVerificationPending(false);
     }
   }
 
@@ -108,9 +187,19 @@ export function AuthForm({ mode, initialResetToken = "", initialNext }: { mode: 
   if (registrationPendingVerification) {
     return (
       <div className="auth-success">
-        <span><Check size={28} strokeWidth={3} /></span>
+        <span><Mail size={28} strokeWidth={2.5} /></span>
         <h1>{copy.auth.verifyEmailTitle}</h1>
         <p>{copy.auth.verifyEmailBody}</p>
+        {verificationEmail ? <strong className="verification-email">{verificationEmail}</strong> : null}
+        <p className="verification-help">E-posta onaylanmadan mrap hesabına giriş yapılamaz. İleti görünmüyorsa spam klasörünü kontrol et.</p>
+        <TurnstileChallenge action="resend_verification" onTokenChange={setVerificationTurnstileToken} resetKey={verificationTurnstileResetKey} />
+        {verificationStatus ? <p className="verification-status" role="status" aria-live="polite">{verificationStatus}</p> : null}
+        <div className="verification-actions">
+          <button type="button" className="primary-button" onClick={checkVerification} disabled={verificationPending}><RefreshCw size={17} /> Doğrulamayı kontrol et</button>
+          <button type="button" className="secondary-button" onClick={resendVerification} disabled={verificationPending || resendCooldown > 0 || (turnstileIsConfiguredForClient() && !verificationTurnstileToken)}>
+            {resendCooldown > 0 ? `${resendCooldown} sn sonra tekrar gönder` : "E-postayı tekrar gönder"}
+          </button>
+        </div>
         <Link href="/login" className="primary-button">{copy.auth.returnToLoginScreenAction} <ArrowRight size={18} /></Link>
       </div>
     );
@@ -129,10 +218,15 @@ export function AuthForm({ mode, initialResetToken = "", initialNext }: { mode: 
             <label>{copy.auth.fullName}<div className="input-wrap"><UserRound size={18} /><input name="displayName" type="text" placeholder={copy.auth.fullNamePlaceholder} required autoComplete="name" minLength={CONTENT_LIMITS.displayName.min} maxLength={CONTENT_LIMITS.displayName.max} /></div></label>
             <label>{copy.auth.username}<div className="input-wrap"><AtSign size={18} /><input name="username" type="text" placeholder={copy.auth.usernamePlaceholder} required autoComplete="username" minLength={CONTENT_LIMITS.username.min} maxLength={CONTENT_LIMITS.username.max} value={username} onChange={(event) => setUsername(event.target.value)} aria-describedby="username-availability" /></div><span id="username-availability"><AccountAvailabilityHint status={usernameAvailability} label={copy.auth.username} /></span></label>
             <label>{copy.auth.birthDate}<div className="input-wrap"><CalendarDays size={18} /><input name="birthDate" type="date" required autoComplete="bday" min={birthDateBounds.min} max={birthDateBounds.max} /></div></label>
-            <div className="auth-location-fields">
-              <label>{copy.common.country}<div className="input-wrap"><Globe2 size={18} /><select name="countryCode" value={countryCode} onChange={(event) => { const nextCountryCode = event.target.value; setCountryCode(nextCountryCode); setCityId(citiesForCountry(nextCountryCode)[0]?.id ?? ""); }} required>{LOCATION_OPTIONS.map((location) => <option key={location.code} value={location.code}>{location.label}</option>)}</select></div></label>
-              <label>{copy.common.city}<div className="input-wrap"><MapPin size={18} /><select name="cityId" value={cityId} onChange={(event) => setCityId(event.target.value)} required>{citiesForCountry(countryCode).map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></div></label>
-            </div>
+            <LocationFields
+              key={countryCode}
+              countryCode={countryCode}
+              cityId={cityId}
+              countryLabel={countryLabel}
+              cityLabel={cityLabel}
+              onCountryChange={(code, label) => { setCountryCode(code); setCountryLabel(label); }}
+              onCityChange={(id, label) => { setCityId(id); setCityLabel(label); }}
+            />
           </>
         ) : null}
         {!resetConfirm ? <label>{copy.auth.email}<div className="input-wrap"><Mail size={18} /><input name="email" type="email" placeholder={copy.auth.emailPlaceholder} required autoComplete="email" maxLength={CONTENT_LIMITS.email.max} value={email} onChange={(event) => setEmail(event.target.value)} aria-describedby={mode === "register" ? "email-availability" : undefined} /></div>{mode === "register" ? <span id="email-availability"><AccountAvailabilityHint status={emailAvailability} label={copy.auth.email} /></span> : null}</label> : null}

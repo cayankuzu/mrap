@@ -8,6 +8,7 @@ import { isEligibleBirthDate } from "@/lib/age-policy";
 import { API_BODY_BYTE_LIMITS, API_RATE_LIMITS, PROFILE_IMAGE_DATA_URL_MAX_LENGTH, checkUserMutationRateLimit, noStoreJson, requestBodyErrorResponse } from "@/server/http/api-security";
 import { readLimitedJsonObject } from "@/server/http/limited-json";
 import { sanitizeImageDataUrl } from "@/server/http/media-validation";
+import { resolveWorldLocation } from "@/lib/world-locations";
 
 const profileImageMimeTypes = new Set(["image/jpeg"] as const);
 
@@ -31,7 +32,7 @@ export async function PUT(request: Request) {
     const username = normalizeUsername(String(body.username ?? user.username));
     const countryCode = String(body.countryCode ?? user.countryCode).trim().toUpperCase();
     const cityId = String(body.cityId ?? user.cityId).trim();
-    const location = resolveLocation(countryCode, cityId);
+    const location = resolveLocation(countryCode, cityId) ?? await resolveWorldLocation(countryCode, cityId);
     const bio = String(body.bio ?? user.bio).trim();
     const birthDate = String(body.birthDate ?? user.birthDate);
     const birth = parseIsoCalendarDate(birthDate);

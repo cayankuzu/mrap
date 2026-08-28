@@ -24,27 +24,27 @@ export class TerritoryEngine {
     return { valid: true, feature: incoming, areaM2 };
   }
 
-  mergeTerritory(existing: TerritoryGeometry | null, incoming: Polygon): TerritoryGeometry {
+  mergeTerritory(existing: TerritoryGeometry | null, incoming: TerritoryGeometry): TerritoryGeometry {
     if (!existing) return incoming;
     const merged = union(featureCollection([feature(existing), feature(incoming)]));
     if (!merged || (merged.geometry.type !== "Polygon" && merged.geometry.type !== "MultiPolygon")) throw new Error("Sahiplik alanları birleştirilemedi.");
     return merged.geometry;
   }
 
-  calculateUniqueArea(existing: TerritoryGeometry | null, incoming: Polygon) {
+  calculateUniqueArea(existing: TerritoryGeometry | null, incoming: TerritoryGeometry) {
     const beforeM2 = existing ? area(feature(existing)) : 0;
     const merged = this.mergeTerritory(existing, incoming);
     const afterM2 = area(feature(merged));
     return { geometry: merged, beforeM2, afterM2, newlyAddedAreaM2: Math.max(0, afterM2 - beforeM2) };
   }
 
-  calculateOverlap(existing: TerritoryGeometry | null, incoming: Polygon) {
+  calculateOverlap(existing: TerritoryGeometry | null, incoming: TerritoryGeometry) {
     if (!existing || !booleanIntersects(feature(existing), feature(incoming))) return 0;
     const overlap = intersect(featureCollection([feature(existing), feature(incoming)]));
     return overlap ? area(overlap) : 0;
   }
 
-  applyEnemyCapture(enemy: TerritoryGeometry, incoming: Polygon): TerritoryGeometry | null {
+  applyEnemyCapture(enemy: TerritoryGeometry, incoming: TerritoryGeometry): TerritoryGeometry | null {
     if (!booleanIntersects(feature(enemy), feature(incoming))) return enemy;
     const remaining = difference(featureCollection([feature(enemy), feature(incoming)]));
     if (!remaining) return null;
@@ -52,7 +52,7 @@ export class TerritoryEngine {
     return remaining.geometry;
   }
 
-  subtractPaint(existing: TerritoryGeometry, incoming: Polygon): TerritoryGeometry | null {
+  subtractPaint(existing: TerritoryGeometry, incoming: TerritoryGeometry): TerritoryGeometry | null {
     return this.applyEnemyCapture(existing, incoming);
   }
 }

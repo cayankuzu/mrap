@@ -114,12 +114,19 @@ test.describe("mobil gerçek kullanıcı etkileşimleri", () => {
 
     const miniMap = post.locator(".territory-interactive-map");
     await expect(miniMap.locator(".maplibregl-canvas")).toBeVisible();
+    const miniMapCanvasHost = miniMap.locator(".territory-interactive-canvas");
+    await expect.poll(async () => (await miniMapCanvasHost.boundingBox())?.height ?? 0, {
+      message: "Mini harita MapLibre kapsayicisi kart yuksekligini doldurmali",
+    }).toBeGreaterThan(150);
     await miniMap.click({ position: { x: 42, y: 42 } });
     const mapDialog = page.getByRole("dialog", { name: "Caddebostan Sahil Turu · Kadıköy, İstanbul" });
     await expect(mapDialog).toBeVisible();
     const expandedMap = mapDialog.getByRole("application", { name: "Caddebostan Sahil Turu büyütülmüş etkileşimli haritası" });
     const mapTouchSurface = mapDialog.locator(".maplibregl-canvas-container.maplibregl-interactive");
     await expect(expandedMap).toBeVisible();
+    await expect.poll(async () => (await mapDialog.locator(".territory-interactive-canvas").boundingBox())?.height ?? 0, {
+      message: "Buyutulmus MapLibre kapsayicisi panel yuksekligini doldurmali",
+    }).toBeGreaterThan(300);
     await expect(mapTouchSurface).toHaveCount(1);
     await expect(mapDialog.getByText("Alan çevresinde sınırlı gezinme", { exact: true })).toBeVisible();
     await page.evaluate(() => {

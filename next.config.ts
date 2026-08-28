@@ -4,6 +4,7 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
   devIndicators: false,
+  serverExternalPackages: ["@countrystatecity/countries"],
   allowedDevOrigins: ["127.0.0.1", "localhost"],
   async headers() {
     const isDevelopment = process.env.NODE_ENV !== "production";

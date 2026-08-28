@@ -79,7 +79,8 @@ export class GameSession {
   }
 
   claimSucceeded() {
-    if (this.potentialLoop) this.detector.markHandled(this.potentialLoop);
+    this.tracker.startSegmentFromCurrent();
+    this.detector.reset();
     this.potentialLoop = null;
     this.diagnostic = null;
     this.claimCount += 1;

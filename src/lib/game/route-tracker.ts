@@ -17,6 +17,11 @@ export class RouteTracker {
     this.coordinates = [sample.coordinate];
   }
 
+  startSegmentFromCurrent() {
+    const current = this.coordinates.at(-1);
+    this.coordinates = current ? [current] : [];
+  }
+
   restoreSegment(samples: readonly LocationSample[], totalDistanceM: number) {
     this.coordinates = samples.map((sample) => sample.coordinate);
     this.totalDistanceM = Number.isFinite(totalDistanceM) ? Math.max(0, totalDistanceM) : 0;

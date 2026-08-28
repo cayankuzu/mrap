@@ -21,8 +21,9 @@ import {
 } from "lucide-react";
 import { AccountAvailabilityHint } from "@/components/AccountAvailabilityHint";
 import { ColorPalette } from "@/components/ColorPalette";
+import { LocationFields } from "@/components/LocationFields";
 import { UserAvatar } from "@/components/UserAvatar";
-import { citiesForCountry, LOCATION_OPTIONS, readableTextColor } from "@/lib/app-config";
+import { readableTextColor } from "@/lib/app-config";
 import { optimizeImage } from "@/lib/client-image";
 import { CONTENT_LIMITS } from "@/lib/content-limits";
 import { getBirthDateInputBounds } from "@/lib/age-policy";
@@ -37,6 +38,8 @@ export type ProfileSaveInput = {
   displayName: string;
   countryCode: string;
   cityId: string;
+  country: string;
+  city: string;
   birthDate: string;
   bio: string;
   color: string;
@@ -69,6 +72,8 @@ export function SettingsClient({ initialUser, saveProfile, resolveUsernameAvaila
   const [color, setColor] = useState(initialUser.color);
   const [countryCode, setCountryCode] = useState(initialUser.countryCode);
   const [cityId, setCityId] = useState(initialUser.cityId);
+  const [country, setCountry] = useState(initialUser.country);
+  const [city, setCity] = useState(initialUser.city);
   const [accountVisibility, setAccountVisibility] = useState<AppUser["accountVisibility"]>(initialUser.accountVisibility);
   const [avatarData, setAvatarData] = useState(initialUser.avatarData);
   const [coverData, setCoverData] = useState(initialUser.coverData);
@@ -109,6 +114,8 @@ export function SettingsClient({ initialUser, saveProfile, resolveUsernameAvaila
     setColor(nextUser.color);
     setCountryCode(nextUser.countryCode);
     setCityId(nextUser.cityId);
+    setCountry(nextUser.country);
+    setCity(nextUser.city);
     setAccountVisibility(nextUser.accountVisibility);
     setAvatarData(nextUser.avatarData);
     setCoverData(nextUser.coverData);
@@ -136,6 +143,8 @@ export function SettingsClient({ initialUser, saveProfile, resolveUsernameAvaila
       displayName: activeSection === "profile" ? displayName : user.displayName,
       countryCode: activeSection === "profile" ? countryCode : user.countryCode,
       cityId: activeSection === "profile" ? cityId : user.cityId,
+      country: activeSection === "profile" ? country : user.country,
+      city: activeSection === "profile" ? city : user.city,
       birthDate: activeSection === "profile" ? birthDate : user.birthDate,
       bio: activeSection === "profile" ? bio : user.bio,
       color: activeSection === "preferences" ? color : user.color,
@@ -170,6 +179,8 @@ export function SettingsClient({ initialUser, saveProfile, resolveUsernameAvaila
         setBio(result.user.bio);
         setCountryCode(result.user.countryCode);
         setCityId(result.user.cityId);
+        setCountry(result.user.country);
+        setCity(result.user.city);
         setAvatarData(result.user.avatarData);
         setCoverData(result.user.coverData);
       } else {
@@ -301,8 +312,18 @@ export function SettingsClient({ initialUser, saveProfile, resolveUsernameAvaila
                 <label>Kullanıcı adı<input name="username" value={username} onChange={(event) => setUsername(event.target.value)} minLength={CONTENT_LIMITS.username.min} maxLength={CONTENT_LIMITS.username.max} aria-describedby="settings-username-availability" required /><span id="settings-username-availability"><AccountAvailabilityHint status={usernameAvailability} label="Kullanıcı adı" /></span></label>
                 <label className="readonly-field"><span>E-posta <Mail size={13} /></span><input value={user.email} readOnly aria-label="E-posta adresi" /></label>
                 <label>Doğum tarihi<input name="birthDate" type="date" value={birthDate} onChange={(event) => setBirthDate(event.target.value)} min={birthDateBounds.min} max={birthDateBounds.max} required /></label>
-                <label>Ülke<select name="countryCode" value={countryCode} onChange={(event) => { const nextCountryCode = event.target.value; setCountryCode(nextCountryCode); setCityId(citiesForCountry(nextCountryCode)[0]?.id ?? ""); }} required>{LOCATION_OPTIONS.map((location) => <option key={location.code} value={location.code}>{location.label}</option>)}</select></label>
-                <label>Şehir<select name="cityId" value={cityId} onChange={(event) => setCityId(event.target.value)} required>{citiesForCountry(countryCode).map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
+                <div className="full-field">
+                  <LocationFields
+                    key={countryCode}
+                    compact
+                    countryCode={countryCode}
+                    cityId={cityId}
+                    countryLabel={country}
+                    cityLabel={city}
+                    onCountryChange={(code, label) => { setCountryCode(code); setCountry(label); }}
+                    onCityChange={(id, label) => { setCityId(id); setCity(label); }}
+                  />
+                </div>
                 <label className="full-field">Kısa biyografi<textarea name="bio" value={bio} onChange={(event) => setBio(event.target.value)} maxLength={CONTENT_LIMITS.bio.max} placeholder="Rotana eşlik eden kısa hikâye…" /></label>
               </div>
             </section>
@@ -354,7 +375,7 @@ export function SettingsClient({ initialUser, saveProfile, resolveUsernameAvaila
 
         <div className="settings-savebar">
           <span role="status" aria-live="polite">{status}</span>
-          <button type="submit" className="primary-button" disabled={pending || activeSection === "profile" && usernameAvailability !== "available"}>
+          <button type="submit" className="primary-button" disabled={pending || activeSection === "profile" && (usernameAvailability !== "available" || !cityId)}>
             <Save size={18} /> {pending ? copy.common.saving : activeSection === "profile" ? copy.settings.saveProfile : copy.settings.saveSettings}
           </button>
         </div>

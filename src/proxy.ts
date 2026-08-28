@@ -33,7 +33,8 @@ async function refreshSupabaseSession(request: NextRequest, requestHeaders?: Hea
     },
   });
   const { data, error } = await client.auth.getUser();
-  return { response, authenticated: !error && Boolean(data.user) };
+  if (!error && data.user && !data.user.email_confirmed_at) await client.auth.signOut();
+  return { response, authenticated: !error && Boolean(data.user?.email_confirmed_at) };
 }
 
 export async function proxy(request: NextRequest) {
@@ -66,7 +67,9 @@ export async function proxy(request: NextRequest) {
   if (fetchSite === "cross-site") return NextResponse.json({ error: "Güvenlik doğrulaması başarısız." }, { status: 403 });
 
   const origin = request.headers.get("origin");
-  const expectedOrigin = process.env.MRAP_CANONICAL_ORIGIN?.replace(/\/$/, "") || request.nextUrl.origin;
+  const requestHost = request.headers.get("host")?.trim();
+  const expectedOrigin = process.env.MRAP_CANONICAL_ORIGIN?.replace(/\/$/, "")
+    || (requestHost ? `${request.nextUrl.protocol}//${requestHost}` : request.nextUrl.origin);
   if (!origin || origin !== expectedOrigin) return NextResponse.json({ error: "İstek kaynağı doğrulanamadı." }, { status: 403 });
 
   return (await refreshSupabaseSession(request)).response;

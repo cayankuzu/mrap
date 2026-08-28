@@ -82,7 +82,7 @@ function arrangeSupabaseUser({
   rowEmail?: string;
 } = {}) {
   mocks.serverGetUser.mockResolvedValue({
-    data: { user: { id, email: authEmail || undefined } },
+    data: { user: { id, email: authEmail || undefined, email_confirmed_at: "2026-08-28T12:00:00Z" } },
     error: null,
   });
   mocks.findUserRowById.mockResolvedValue({ id, email: rowEmail });
@@ -351,13 +351,24 @@ describe("Supabase parola ve oturum akışı", () => {
   it("auth ve profil e-postası yoksa güvenli boş e-posta değeri döner", async () => {
     const publicUser = { id: "user-1", username: "oyuncu", displayName: "Oyuncu" };
     mocks.serverGetUser.mockResolvedValue({
-      data: { user: { id: "user-1", email: undefined } },
+      data: { user: { id: "user-1", email: undefined, email_confirmed_at: "2026-08-28T12:00:00Z" } },
       error: null,
     });
     mocks.findUserRowById.mockResolvedValue({ id: "user-1", email: undefined });
     mocks.toPublicUser.mockResolvedValue(publicUser);
 
     await expect(getCurrentUser()).resolves.toEqual({ ...publicUser, email: "" });
+  });
+
+  it("e-postası doğrulanmamış Supabase oturumunu kapatır", async () => {
+    mocks.serverGetUser.mockResolvedValue({
+      data: { user: { id: "user-1", email: "auth@example.com", email_confirmed_at: null } },
+      error: null,
+    });
+
+    await expect(getCurrentUser()).resolves.toBeNull();
+    expect(mocks.serverSignOut).toHaveBeenCalledOnce();
+    expect(mocks.findUserRowById).not.toHaveBeenCalled();
   });
 });
 

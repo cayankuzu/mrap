@@ -35,6 +35,12 @@ export default defineConfig({
     stderr: "pipe",
     env: {
       NEXT_TELEMETRY_DISABLED: "1",
+      VERCEL: "",
+      VERCEL_ENV: "",
+      MRAP_DATA_PROVIDER: "sqlite",
+      NEXT_PUBLIC_CLOUDFLARE_TURNSTILE_SITE_KEY: "",
+      CLOUDFLARE_TURNSTILE_SECRET_KEY: "",
+      MRAP_TURNSTILE_EXPECTED_HOSTNAMES: "",
       MRAP_SQLITE_FILENAME: "mrap-playwright.sqlite",
       MRAP_RATE_LIMIT_NAMESPACE: `playwright-${runSeed}`,
     },

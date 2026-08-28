@@ -21,9 +21,12 @@ export async function POST(request: Request) {
     if (body.remember !== undefined && typeof body.remember !== "boolean") return noStoreJson({ error: "Oturum tercihi geçersiz." }, { status: 400 });
     if (email.length > CONTENT_LIMITS.email.max || password.length > CONTENT_LIMITS.password.max) return noStoreJson({ error: "E-posta veya şifre hatalı." }, { status: 401 });
     if (supabaseProviderEnabled()) {
-      const user = await signInSupabaseAccount(email, password);
-      if (!user) return noStoreJson({ error: "E-posta veya şifre hatalı." }, { status: 401 });
-      return noStoreJson({ user });
+      const result = await signInSupabaseAccount(email, password);
+      if (result.status === "email_unverified") {
+        return noStoreJson({ code: "EMAIL_NOT_VERIFIED", error: "Giriş yapmadan önce e-posta adresini doğrulamalısın." }, { status: 403 });
+      }
+      if (result.status === "invalid_credentials") return noStoreJson({ error: "E-posta veya şifre hatalı." }, { status: 401 });
+      return noStoreJson({ user: result.user });
     }
 
     const userRow = await findUserRowByEmail(email);

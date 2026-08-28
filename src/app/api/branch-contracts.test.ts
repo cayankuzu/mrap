@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => {
     markNotificationsRead: vi.fn(),
     resolveFollowRequest: vi.fn(),
     resolveLocation: vi.fn(),
+    resolveWorldLocation: vi.fn(),
     toPublicUser: vi.fn(),
     setFollowState: vi.fn(),
     setLikeState: vi.fn(),
@@ -47,6 +48,9 @@ vi.mock("@/lib/app-config", () => ({
   resolveLocation: mocks.resolveLocation,
   ROUTE_COLORS: ["#0D8BFF"],
   normalizeRouteColor: (value: unknown) => String(value).toUpperCase() === "#0D8BFF" ? "#0D8BFF" : null,
+}));
+vi.mock("@/lib/world-locations", () => ({
+  resolveWorldLocation: mocks.resolveWorldLocation,
 }));
 vi.mock("@/lib/repository", () => ({
   UserIdentityConflictError: mocks.UserIdentityConflictError,
@@ -149,6 +153,7 @@ beforeEach(() => {
   mocks.checkRateLimit.mockReturnValue(null);
   mocks.getCurrentUser.mockResolvedValue(currentUser);
   mocks.resolveLocation.mockReturnValue({ country: "Türkiye", city: "İstanbul" });
+  mocks.resolveWorldLocation.mockResolvedValue(null);
   mocks.findUserRowByUsername.mockReturnValue(null);
   mocks.listNotifications.mockReturnValue([]);
   mocks.listPostPage.mockReturnValue({ posts: [], nextCursor: null, total: 0 });

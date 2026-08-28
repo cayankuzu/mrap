@@ -81,7 +81,7 @@ try {
   });
   if (!response.ok) stop(`Runtime contract okunamadı (HTTP ${response.status}). Migration 015 uygulanmış olmalı.`, 1);
   const contract = await response.json();
-  const valid = contract?.schemaVersion >= 15
+  const valid = contract?.schemaVersion >= 16
     && contract?.productionWorldSlug === "world-main"
     && contract?.gridResolution === 22
     && contract?.regionResolution === 14
@@ -90,6 +90,7 @@ try {
     && contract?.outboxPublisherReady === true
     && contract?.dissolvedTerritoryReady === true
     && contract?.regionMapStateReady === true
+    && contract?.worldLocationsOnDemandReady === true
     && Object.entries(expectedRules).every(
       ([key, expected]) => contract?.authoritativeRules?.[key] === expected,
     )

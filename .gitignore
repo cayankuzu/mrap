@@ -17,5 +17,6 @@
 /public/maplibre
 /*.png
 *.tsbuildinfo
+next-env.d.ts
 .DS_Store
 Thumbs.db

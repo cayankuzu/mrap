@@ -37,6 +37,7 @@ import { UserIdentityConflictError, type UserRow } from "@/lib/repository-contra
 import type { RecordRouteSessionInput } from "@/lib/route-session-store";
 import { canViewConnectionList } from "@/lib/social-access";
 import { createMrapSupabaseAdminClient } from "@/lib/supabase/admin-client";
+import { ensureSupabaseLocationCatalog } from "@/lib/supabase/location-catalog";
 import { resolveSupabaseMediaBucket } from "@/lib/supabase/server-config";
 import { normalizeEmail, normalizeUsername } from "@/lib/validation";
 import { escapeSqlLike, normalizeUserSearchText } from "@/lib/user-search";
@@ -414,6 +415,14 @@ async function uploadProfileImage(userId: string, kind: "avatar" | "cover", valu
 export async function updateUser(userId: string, input: { username?: string; displayName?: string; color?: string; bio?: string; countryCode?: string; cityId?: string; country?: string; city?: string; birthDate?: string; accountVisibility?: AppUser["accountVisibility"]; locationVisibility?: AppUser["locationVisibility"]; avatarData?: string | null; coverData?: string | null }) {
   const current = await hydrateUserRow(userId);
   if (!current) return null;
+  if (input.countryCode && input.cityId && input.country && input.city) {
+    await ensureSupabaseLocationCatalog({
+      countryCode: input.countryCode,
+      country: input.country,
+      cityId: input.cityId,
+      city: input.city,
+    });
+  }
   const admin = createMrapSupabaseAdminClient();
   const uploaded: string[] = [];
   let uploadedMediaCanBeRemoved = true;

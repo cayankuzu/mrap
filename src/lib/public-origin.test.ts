@@ -11,6 +11,6 @@ describe("resolvePublicOrigin", () => {
   });
 
   it("yerelde standart geliştirme origin'ine döner", () => {
-    expect(resolvePublicOrigin({ MRAP_CANONICAL_ORIGIN: undefined, VERCEL_PROJECT_PRODUCTION_URL: undefined, VERCEL_URL: undefined })).toBe("http://localhost:3000");
+    expect(resolvePublicOrigin({ MRAP_CANONICAL_ORIGIN: undefined, VERCEL_PROJECT_PRODUCTION_URL: undefined, VERCEL_URL: undefined })).toBe("http://127.0.0.1:3100");
   });
 });
