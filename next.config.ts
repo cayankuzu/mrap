@@ -5,6 +5,11 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   devIndicators: false,
   serverExternalPackages: ["@countrystatecity/countries"],
+  outputFileTracingIncludes: {
+    "/api/locations/*": ["./node_modules/@countrystatecity/countries/dist/data/**/*"],
+    "/api/auth/register": ["./node_modules/@countrystatecity/countries/dist/data/**/*"],
+    "/api/profile": ["./node_modules/@countrystatecity/countries/dist/data/**/*"],
+  },
   allowedDevOrigins: ["127.0.0.1", "localhost"],
   async headers() {
     const isDevelopment = process.env.NODE_ENV !== "production";
