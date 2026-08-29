@@ -58,8 +58,33 @@ test("Harekete geç işlemi konum beklenirken anlık geri bildirim gösterir", a
 
 test("gerçek oyun ekranı konumu önceden ister ve taze örneği başlatmada yeniden kullanır", async ({ page }) => {
   await page.addInitScript(() => {
-    const testWindow = window as typeof window & { __mrapLocationRequestCount?: number };
+    type HeadingTestWindow = typeof window & {
+      __mrapLocationRequestCount?: number;
+      __mrapHeadingPermissionCount?: number;
+      __mrapEmitOrientation?: () => void;
+    };
+    const testWindow = window as HeadingTestWindow;
     testWindow.__mrapLocationRequestCount = 0;
+    testWindow.__mrapHeadingPermissionCount = 0;
+    class MockDeviceOrientationEvent extends Event {
+      alpha: number | null;
+      beta: number | null = null;
+      gamma: number | null = null;
+      absolute: boolean;
+
+      static async requestPermission() {
+        testWindow.__mrapHeadingPermissionCount = (testWindow.__mrapHeadingPermissionCount ?? 0) + 1;
+        return "granted" as const;
+      }
+
+      constructor(type: string, init: { alpha: number; absolute: boolean }) {
+        super(type);
+        this.alpha = init.alpha;
+        this.absolute = init.absolute;
+      }
+    }
+    Object.defineProperty(window, "DeviceOrientationEvent", { configurable: true, value: MockDeviceOrientationEvent });
+    testWindow.__mrapEmitOrientation = () => window.dispatchEvent(new MockDeviceOrientationEvent("deviceorientationabsolute", { alpha: 270, absolute: true }));
     const position = (): GeolocationPosition => ({
       coords: {
         accuracy: 4,
@@ -95,6 +120,12 @@ test("gerçek oyun ekranı konumu önceden ister ve taze örneği başlatmada ye
   await start.click();
   await expect(page.getByText("Rota güvenle kaydediliyor", { exact: true })).toBeVisible({ timeout: 20_000 });
   await expect.poll(() => page.evaluate(() => (window as typeof window & { __mrapLocationRequestCount?: number }).__mrapLocationRequestCount ?? 0)).toBe(1);
+  await expect.poll(() => page.evaluate(() => (window as typeof window & { __mrapHeadingPermissionCount?: number }).__mrapHeadingPermissionCount ?? 0)).toBe(1);
+  await page.evaluate(() => (window as typeof window & { __mrapEmitOrientation?: () => void }).__mrapEmitOrientation?.());
+  const liveMap = page.getByRole("region", { name: "Canlı oyun haritası" });
+  await expect(liveMap).toHaveAttribute("data-player-heading", "90");
+  await expect(liveMap).toHaveAttribute("data-player-heading-source", "device");
+  await expect(page.locator("#player-heading-description")).toHaveText("Baktığın yön: Doğu, 90 derece.");
 
   await sessionCard.getByRole("button", { name: "Takibi bitir" }).click();
   await expect(page.getByText("Oturum tamamlandı", { exact: true })).toBeVisible({ timeout: 30_000 });

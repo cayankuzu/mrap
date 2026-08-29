@@ -6,7 +6,7 @@ test.describe("üç motorlu kritik smoke", () => {
     const health = watchBrowserFailures(page);
     await openRoute(page, "/", /Adımlarınla/);
     await expect(page.locator(".landing-metrics, .hero-trust"), "Dogrulanmamis tanitim istatistikleri gosterilmemeli").toHaveCount(0);
-    await expect(page.locator(".landing-footer")).toContainText("Sürüm 0.1.1");
+    await expect(page.locator(".landing-footer")).toContainText("Sürüm 0.1.2");
     await expectNoHorizontalOverflow(page, "tanıtım");
     await health.assertClean();
   });

@@ -26,7 +26,11 @@ describe("Cloudflare istemci ve HTTP sınırları", () => {
     expect(csp).toContain("connect-src 'self' https://*.openfreemap.org https://openfreemap.org");
     expect(csp).not.toContain("script-src *");
     expect(csp).not.toContain("unsafe-eval");
-    expect(globalHeaders.find((header) => header.key === "Permissions-Policy")?.value).toContain("geolocation=(self)");
+    const permissionsPolicy = globalHeaders.find((header) => header.key === "Permissions-Policy")?.value ?? "";
+    expect(permissionsPolicy).toContain("geolocation=(self)");
+    expect(permissionsPolicy).toContain("accelerometer=(self)");
+    expect(permissionsPolicy).toContain("gyroscope=(self)");
+    expect(permissionsPolicy).toContain("magnetometer=(self)");
     expect(globalHeaders.find((header) => header.key === "Strict-Transport-Security")?.value).toContain("includeSubDomains");
   });
 

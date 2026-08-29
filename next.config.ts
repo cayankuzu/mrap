@@ -36,7 +36,7 @@ const nextConfig: NextConfig = {
         { key: "X-Content-Type-Options", value: "nosniff" },
         { key: "X-Frame-Options", value: "DENY" },
         { key: "Cross-Origin-Resource-Policy", value: "same-origin" },
-        { key: "Permissions-Policy", value: "geolocation=(self), camera=(), microphone=(), payment=(), usb=()" },
+        { key: "Permissions-Policy", value: "geolocation=(self), accelerometer=(self), gyroscope=(self), magnetometer=(self), camera=(), microphone=(), payment=(), usb=()" },
         ...(isDevelopment ? [] : [
           { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
           { key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" },

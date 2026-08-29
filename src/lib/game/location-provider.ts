@@ -1,4 +1,5 @@
 import type { Coordinate, LocationSample } from "@/lib/game/types";
+import { headingFromGeolocation, normalizeHeading } from "@/lib/game/device-heading";
 
 export type LocationListener = (sample: LocationSample) => void;
 export type LocationErrorListener = (message: string) => void;
@@ -17,7 +18,15 @@ export class RealLocationProvider implements LocationProvider {
       return () => undefined;
     }
     const watchId = navigator.geolocation.watchPosition(
-      (value) => onLocation({ coordinate: [value.coords.longitude, value.coords.latitude], accuracyM: value.coords.accuracy, timestamp: value.timestamp }),
+      (value) => {
+        const headingDeg = headingFromGeolocation(value);
+        onLocation({
+          coordinate: [value.coords.longitude, value.coords.latitude],
+          accuracyM: value.coords.accuracy,
+          timestamp: value.timestamp,
+          ...(headingDeg === null ? {} : { headingDeg }),
+        });
+      },
       (error) => onError(error.code === 1 ? "Konum izni reddedildi." : "Konum alınamadı."),
       { enableHighAccuracy: true, maximumAge: 1000, timeout: 12000 },
     );
@@ -28,6 +37,7 @@ export class RealLocationProvider implements LocationProvider {
 export class SimulatedLocationProvider implements LocationProvider {
   readonly kind = "simulation" as const;
   private listener: LocationListener | null = null;
+  private headingDeg: number | undefined;
 
   constructor(private coordinate: Coordinate) {}
 
@@ -39,6 +49,8 @@ export class SimulatedLocationProvider implements LocationProvider {
 
   move(east: number, north: number, meters: number) {
     const latitude = this.coordinate[1];
+    const nextHeading = normalizeHeading(Math.atan2(east, north) * 180 / Math.PI);
+    if (nextHeading !== null && (east !== 0 || north !== 0)) this.headingDeg = nextHeading;
     this.coordinate = [
       this.coordinate[0] + east * meters / (111_320 * Math.cos(latitude * Math.PI / 180)),
       latitude + north * meters / 110_540,
@@ -56,6 +68,6 @@ export class SimulatedLocationProvider implements LocationProvider {
   }
 
   private emit() {
-    this.listener?.({ coordinate: this.coordinate, accuracyM: 0, timestamp: Date.now() });
+    this.listener?.({ coordinate: this.coordinate, accuracyM: 0, timestamp: Date.now(), ...(this.headingDeg === undefined ? {} : { headingDeg: this.headingDeg }) });
   }
 }

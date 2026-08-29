@@ -10,6 +10,7 @@ import { ConfirmationDialog } from "@/components/ConfirmationDialog";
 import { AuthoritativeGameStateMachine, type AuthoritativeUiEvent } from "@/lib/game/authoritative-state-machine";
 import type { AuthoritativeUiState, ClaimResult, CloseLoopCommand, LocationPointCommand, LoopCandidateDto, RegionPatchEvent, RegionSnapshot, RouteSessionDto, RouteSessionRecoveryDto } from "@/lib/game/authoritative-types";
 import { GAME_CONFIG } from "@/lib/game/config";
+import { deviceHeadingRequiresPermission, headingCardinalLabel, headingDelta, headingFromGeolocation, normalizeHeading, requestDeviceHeadingPermission, smoothHeading, subscribeDeviceHeading } from "@/lib/game/device-heading";
 import { GameSession } from "@/lib/game/game-session";
 import { RealLocationProvider, SimulatedLocationProvider } from "@/lib/game/location-provider";
 import { appendOfflineRouteDraftPoint, clearOfflineRouteDraft, readOfflineRouteDraft } from "@/lib/game/offline-route-draft";
@@ -112,6 +113,17 @@ function browserIsOnline() {
   return navigator.onLine !== false;
 }
 
+function playerPositionCollection(coordinate: Coordinate, heading: number | null): FeatureCollection<Point> {
+  return {
+    type: "FeatureCollection",
+    features: [{
+      type: "Feature",
+      properties: { heading: heading ?? 0, hasHeading: heading !== null },
+      geometry: { type: "Point", coordinates: coordinate },
+    }],
+  };
+}
+
 const diagnosticLabels: Record<LoopInvalidReason, string> = {
   TOO_FEW_POINTS: "Döngü için daha fazla yön değiştir.",
   TOO_SHORT: "Temas bulundu; rota bölümü henüz çok kısa.",
@@ -123,12 +135,20 @@ const diagnosticLabels: Record<LoopInvalidReason, string> = {
 export function GameMap({ user, mapState: initialMapState, demo = false }: { user: AppUser; mapState: TerritoryMapState; demo?: boolean }) {
   const { dictionary: copy } = useI18n();
   const mapContainerRef = useRef<HTMLDivElement>(null);
+  const headingDescriptionRef = useRef<HTMLSpanElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const positionRef = useRef<Coordinate>(ISTANBUL_CENTER);
+  const playerHeadingRef = useRef<number | null>(null);
+  const pendingHeadingRef = useRef<number | null>(null);
+  const headingAnimationFrameRef = useRef<number | null>(null);
+  const deviceHeadingStopRef = useRef<(() => void) | null>(null);
+  const deviceHeadingRequestRef = useRef<Promise<void> | null>(null);
+  const deviceHeadingSeenRef = useRef(false);
   const [sessionEngine] = useState(() => new GameSession());
   const authoritativeMachineRef = useRef(new AuthoritativeGameStateMachine());
   const simulatorRef = useRef(new SimulatedLocationProvider(ISTANBUL_CENTER));
   const teleportModeRef = useRef(false);
+  const locationModeRef = useRef<LocationMode>(demo ? "simulation" : "real");
   const locationHandlerRef = useRef<(sample: LocationSample) => void>(() => undefined);
   const authoritativeSessionRef = useRef<RouteSessionDto | null>(null);
   const authoritativeCandidateRef = useRef<LoopCandidateDto | null>(null);
@@ -282,13 +302,54 @@ export function GameMap({ user, mapState: initialMapState, demo = false }: { use
     setMapStateSources(state);
   }, [setMapStateSources]);
 
+  const updatePlayerHeading = useCallback((rawHeading: number, source: "device" | "gps" | "simulation") => {
+    const normalized = normalizeHeading(rawHeading);
+    if (normalized === null || source === "gps" && deviceHeadingSeenRef.current) return;
+    if (source === "device") deviceHeadingSeenRef.current = true;
+    pendingHeadingRef.current = normalized;
+    if (headingAnimationFrameRef.current !== null) return;
+    headingAnimationFrameRef.current = window.requestAnimationFrame(() => {
+      headingAnimationFrameRef.current = null;
+      const pending = pendingHeadingRef.current;
+      pendingHeadingRef.current = null;
+      if (pending === null) return;
+      const previous = playerHeadingRef.current;
+      const next = smoothHeading(previous, pending);
+      if (next === null || previous !== null && Math.abs(headingDelta(previous, next)) < 0.5) return;
+      playerHeadingRef.current = next;
+      const roundedHeading = Math.round(next) % 360;
+      if (mapContainerRef.current) {
+        mapContainerRef.current.dataset.playerHeading = String(roundedHeading);
+        mapContainerRef.current.dataset.playerHeadingSource = source;
+      }
+      if (headingDescriptionRef.current) headingDescriptionRef.current.textContent = `Baktığın yön: ${headingCardinalLabel(next)}, ${roundedHeading} derece.`;
+      (mapRef.current?.getSource("player-position") as GeoJSONSource | undefined)?.setData(playerPositionCollection(positionRef.current, next));
+    });
+  }, []);
+
+  const enableDeviceHeading = useCallback((requestPermission: boolean) => {
+    if (deviceHeadingStopRef.current) return Promise.resolve();
+    if (!requestPermission && deviceHeadingRequiresPermission()) return Promise.resolve();
+    if (deviceHeadingRequestRef.current) return deviceHeadingRequestRef.current;
+    const pending = (async () => {
+      const permission = await requestDeviceHeadingPermission();
+      if (permission !== "granted" || !componentActiveRef.current || locationModeRef.current !== "real" || deviceHeadingStopRef.current) return;
+      deviceHeadingStopRef.current = subscribeDeviceHeading((heading) => updatePlayerHeading(heading, "device"));
+    })();
+    deviceHeadingRequestRef.current = pending;
+    void pending.finally(() => {
+      if (deviceHeadingRequestRef.current === pending) deviceHeadingRequestRef.current = null;
+    });
+    return pending;
+  }, [updatePlayerHeading]);
+
   const updateLiveSources = useCallback((snapshot: GameSessionSnapshot, currentPosition: Coordinate) => {
     const map = mapRef.current;
     if (!map?.isStyleLoaded()) return;
     const routeData: FeatureCollection<LineString> = snapshot.coordinates.length >= 2
       ? { type: "FeatureCollection", features: [{ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: snapshot.coordinates } }] }
       : EMPTY_COLLECTION as FeatureCollection<LineString>;
-    const playerData: FeatureCollection<Point> = { type: "FeatureCollection", features: [{ type: "Feature", properties: {}, geometry: { type: "Point", coordinates: currentPosition } }] };
+    const playerData = playerPositionCollection(currentPosition, playerHeadingRef.current);
     const loopData: FeatureCollection<Polygon> = snapshot.potentialLoop
       ? { type: "FeatureCollection", features: [{ type: "Feature", properties: {}, geometry: snapshot.potentialLoop.polygon }] }
       : EMPTY_COLLECTION as FeatureCollection<Polygon>;
@@ -594,6 +655,7 @@ export function GameMap({ user, mapState: initialMapState, demo = false }: { use
   const handleLocation = useCallback((sample: LocationSample) => {
     if (document.visibilityState !== "visible") return;
     positionRef.current = sample.coordinate;
+    if (sample.headingDeg !== undefined) updatePlayerHeading(sample.headingDeg, locationMode === "simulation" ? "simulation" : "gps");
     if (locationMode === "real" && sample.accuracyM > GAME_CONFIG.location.maximumGpsAccuracyM) {
       setLocationStatus(`Zayıf konum sinyali · ±${Math.round(sample.accuracyM)} m`);
       if (!demo) transitionAuthoritative("LOW_ACCURACY");
@@ -625,10 +687,11 @@ export function GameMap({ user, mapState: initialMapState, demo = false }: { use
     updateLiveSources(next, sample.coordinate);
     mapRef.current?.easeTo({ center: sample.coordinate, duration: 320 });
     if (!demo && next.potentialLoop && navigator.onLine !== false) void requestAuthoritativeCandidate(next.potentialLoop.id);
-  }, [demo, enqueueAuthoritativePoint, enqueueOfflineDraftPoint, locationMode, ownTerritory, requestAuthoritativeCandidate, sessionEngine, transitionAuthoritative, updateLiveSources]);
+  }, [demo, enqueueAuthoritativePoint, enqueueOfflineDraftPoint, locationMode, ownTerritory, requestAuthoritativeCandidate, sessionEngine, transitionAuthoritative, updateLiveSources, updatePlayerHeading]);
 
   useEffect(() => { locationHandlerRef.current = handleLocation; }, [handleLocation]);
   useEffect(() => { teleportModeRef.current = teleportMode; }, [teleportMode]);
+  useEffect(() => { locationModeRef.current = locationMode; }, [locationMode]);
   useEffect(() => { authoritativeCandidateRef.current = authoritativeCandidate; }, [authoritativeCandidate]);
 
   useEffect(() => {
@@ -724,7 +787,7 @@ export function GameMap({ user, mapState: initialMapState, demo = false }: { use
       map.addSource("territory-boundaries", { type: "geojson", data: collections.boundaries });
       map.addSource("active-route", { type: "geojson", data: EMPTY_COLLECTION });
       map.addSource("active-area", { type: "geojson", data: EMPTY_COLLECTION });
-      map.addSource("player-position", { type: "geojson", data: { type: "FeatureCollection", features: [{ type: "Feature", properties: {}, geometry: { type: "Point", coordinates: positionRef.current } }] } });
+      map.addSource("player-position", { type: "geojson", data: playerPositionCollection(positionRef.current, playerHeadingRef.current) });
       map.addLayer({ id: "territory-fill", type: "fill", source: "territories", paint: { "fill-color": ["get", "color"], "fill-opacity": 0.17 } });
       map.addLayer({ id: "territory-paint-fill", type: "fill", source: "territory-paints", paint: { "fill-color": ["get", "color"], "fill-opacity": 0.62 } });
       map.addLayer({ id: "territory-outline", type: "line", source: "territories", paint: { "line-color": ["get", "color"], "line-width": 4, "line-opacity": 0.95 } });
@@ -733,6 +796,7 @@ export function GameMap({ user, mapState: initialMapState, demo = false }: { use
       map.addLayer({ id: "active-route-line", type: "line", source: "active-route", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": user.color, "line-width": 6, "line-opacity": 0.96 } });
       map.addLayer({ id: "active-route-label", type: "symbol", source: "active-route", layout: { "symbol-placement": "line", "symbol-spacing": 105, "text-field": `@${user.username}`, "text-size": 10, "text-font": ["Noto Sans Regular"] }, paint: { "text-color": "#132019", "text-halo-color": "#ffffff", "text-halo-width": 2 } });
       map.addLayer({ id: "player-halo", type: "circle", source: "player-position", paint: { "circle-radius": 17, "circle-color": user.color, "circle-opacity": 0.18 } });
+      map.addLayer({ id: "player-heading", type: "symbol", source: "player-position", filter: ["==", ["get", "hasHeading"], true], layout: { "text-field": "▲", "text-size": 21, "text-offset": [0, -1.05], "text-rotate": ["get", "heading"], "text-rotation-alignment": "map", "text-pitch-alignment": "map", "text-allow-overlap": true, "text-ignore-placement": true, "text-font": ["Noto Sans Regular"] }, paint: { "text-color": user.color, "text-halo-color": "#ffffff", "text-halo-width": 2 } });
       map.addLayer({ id: "player-dot", type: "circle", source: "player-position", paint: { "circle-radius": 8, "circle-color": user.color, "circle-stroke-color": "#ffffff", "circle-stroke-width": 4 } });
       map.on("click", "territory-fill", handleTerritoryClick);
       map.on("mouseenter", "territory-fill", handleTerritoryMouseEnter);
@@ -1171,7 +1235,29 @@ export function GameMap({ user, mapState: initialMapState, demo = false }: { use
     const map = mapRef.current;
     if (!mapReady || !map?.isStyleLoaded()) return;
     for (const layer of ["active-area-fill", "active-route-line", "player-halo", "player-dot"]) map.setPaintProperty(layer, layer.includes("fill") ? "fill-color" : layer.includes("line") ? "line-color" : "circle-color", selectedColor);
+    if (map.getLayer("player-heading")) map.setPaintProperty("player-heading", "text-color", selectedColor);
   }, [mapReady, selectedColor]);
+
+  useEffect(() => {
+    if (locationMode !== "real") {
+      deviceHeadingStopRef.current?.();
+      deviceHeadingStopRef.current = null;
+      deviceHeadingSeenRef.current = false;
+      playerHeadingRef.current = null;
+      if (mapContainerRef.current) {
+        delete mapContainerRef.current.dataset.playerHeading;
+        delete mapContainerRef.current.dataset.playerHeadingSource;
+      }
+      if (headingDescriptionRef.current) headingDescriptionRef.current.textContent = "Baktığın yön henüz belirlenmedi.";
+      (mapRef.current?.getSource("player-position") as GeoJSONSource | undefined)?.setData(playerPositionCollection(positionRef.current, null));
+      return;
+    }
+    if (!deviceHeadingRequiresPermission()) void enableDeviceHeading(false);
+    return () => {
+      deviceHeadingStopRef.current?.();
+      deviceHeadingStopRef.current = null;
+    };
+  }, [enableDeviceHeading, locationMode]);
 
   useEffect(() => {
     if (!trackingActive) return;
@@ -1200,6 +1286,9 @@ export function GameMap({ user, mapState: initialMapState, demo = false }: { use
   useEffect(() => () => {
     activeLocationStopRef.current?.();
     activeLocationStopRef.current = null;
+    deviceHeadingStopRef.current?.();
+    deviceHeadingStopRef.current = null;
+    if (headingAnimationFrameRef.current !== null) window.cancelAnimationFrame(headingAnimationFrameRef.current);
     if (pointFlushTimerRef.current !== null) window.clearTimeout(pointFlushTimerRef.current);
     if (claimStateTimerRef.current !== null) window.clearTimeout(claimStateTimerRef.current);
   }, []);
@@ -1236,7 +1325,14 @@ export function GameMap({ user, mapState: initialMapState, demo = false }: { use
     const pending = new Promise<LocationSample | null>((resolve) => {
       navigator.geolocation.getCurrentPosition(
         (value) => {
-          const sample = { coordinate: [value.coords.longitude, value.coords.latitude] as Coordinate, accuracyM: value.coords.accuracy, timestamp: value.timestamp };
+          const gpsHeading = headingFromGeolocation(value);
+          const sample: LocationSample = {
+            coordinate: [value.coords.longitude, value.coords.latitude] as Coordinate,
+            accuracyM: value.coords.accuracy,
+            timestamp: value.timestamp,
+            ...(gpsHeading === null ? {} : { headingDeg: gpsHeading }),
+          };
+          if (gpsHeading !== null) updatePlayerHeading(gpsHeading, "gps");
           if (componentActiveRef.current) {
             prefetchedRealLocationRef.current = sample;
             positionRef.current = sample.coordinate;
@@ -1269,7 +1365,7 @@ export function GameMap({ user, mapState: initialMapState, demo = false }: { use
       if (realLocationRequestRef.current === pending) realLocationRequestRef.current = null;
     });
     return pending;
-  }, [copy.game.locationPermissionDenied, copy.game.locationPermissionDeniedStatus, copy.game.locationPermissionWaiting, copy.game.locationReady, copy.game.locationTimedOut, copy.game.locationTimedOutStatus, copy.game.locationUnavailable, copy.game.locationUnavailableStatus, copy.game.locationUnsupported, session, setLocationStatus, setMessage, updateLiveSources]);
+  }, [copy.game.locationPermissionDenied, copy.game.locationPermissionDeniedStatus, copy.game.locationPermissionWaiting, copy.game.locationReady, copy.game.locationTimedOut, copy.game.locationTimedOutStatus, copy.game.locationUnavailable, copy.game.locationUnavailableStatus, copy.game.locationUnsupported, session, setLocationStatus, setMessage, updateLiveSources, updatePlayerHeading]);
 
   useEffect(() => {
     if (demo || locationMode !== "real" || realLocationPreflightStartedRef.current) return;
@@ -1279,6 +1375,7 @@ export function GameMap({ user, mapState: initialMapState, demo = false }: { use
 
   async function startTracking() {
     if (sessionStarting || sessionRecovering) return;
+    if (locationMode === "real") void enableDeviceHeading(true);
     setSessionStarting(true);
     setMessage("");
     setInfoNotice("");
@@ -1731,8 +1828,7 @@ export function GameMap({ user, mapState: initialMapState, demo = false }: { use
   const claimSubmitting = demo ? session.state === "CLAIMING" : authoritativeUiState === "SUBMITTING_CLAIM";
   const authoritativeActionBlocked = !demo && ["PAUSED_LOW_ACCURACY", "PAUSED_OFFLINE", "RESYNCING_MAP", "SESSION_REVOKED"].includes(authoritativeUiState);
   const canResetRevokedSession = !demo && authoritativeUiState === "SESSION_REVOKED";
-  const sessionCanCollapse = session.state === "IDLE" || session.state === "FINISHED";
-  const sessionIsCollapsed = sessionCanCollapse && sessionCardCollapsed;
+  const sessionIsCollapsed = sessionCardCollapsed;
   const routeSyncCopy = pointSyncState === "expired"
     ? { tone: "is-warning", title: "Geçici kayıt süresi doldu", detail: "Rota duraklatıldı; bağlantı geldiğinde yeni ve ayrı bir çevrimiçi rota bölümü başlat." }
     : pointSyncState === "full"
@@ -1746,10 +1842,24 @@ export function GameMap({ user, mapState: initialMapState, demo = false }: { use
             : offlineDraftCount > 0
               ? { tone: "is-draft", title: "Çevrimdışı bölüm kişisel taslakta", detail: "Alan sahipliği için yeni ve ayrı bir çevrimiçi rota bölümü kullanılıyor." }
               : { tone: "is-synced", title: "Konum noktaları eşitlendi", detail: "Yalnızca çevrimiçi doğrulanan rota bölümleri rekabetçi alana dönüşebilir." };
+  const recordingStatusLabel = demo
+    ? sessionFinishing
+      ? "Oturum tamamlanıyor"
+      : session.state === "PAUSED"
+        ? "Takip duraklatıldı"
+        : session.state === "CLAIMING"
+          ? "Alan doğrulanıyor"
+          : "Rota canlı kaydediliyor"
+    : sessionFinishing
+      ? "Oturum tamamlanıyor"
+      : session.state === "PAUSED"
+        ? "Takip duraklatıldı"
+        : authoritativeStateLabel;
 
   return (
     <section className={`game-map-page real-map-page${claimOpportunity ? " has-loop" : ""}`}>
-      <div ref={mapContainerRef} className="maplibre-game-canvas" role="region" aria-label={copy.game.liveMapAria} />
+      <div ref={mapContainerRef} className="maplibre-game-canvas" role="region" aria-label={copy.game.liveMapAria} aria-describedby="player-heading-description" />
+      <span ref={headingDescriptionRef} id="player-heading-description" className="visually-hidden">Baktığın yön henüz belirlenmedi.</span>
       {!mapReady ? mapLoadFailed ? (
         <div className="map-loading is-error" role="alert">
           <X size={28} aria-hidden="true" />
@@ -1765,7 +1875,7 @@ export function GameMap({ user, mapState: initialMapState, demo = false }: { use
         <div className="map-location-title"><span className="map-status-dot" /><div><strong>{user.city}</strong><small>{formatMessage(copy.game.currentTerritories, { count: territoryState.territories.length })}</small></div></div>
       </div>
 
-      <div className="map-controls map-controls--location"><button type="button" onClick={() => mapRef.current?.easeTo({ center: positionRef.current, zoom: 16 })} aria-label={copy.game.returnToLocation}><Crosshair size={19} /></button></div>
+      <div className="map-controls map-controls--location"><button type="button" onClick={() => { if (locationMode === "real") void enableDeviceHeading(true); mapRef.current?.easeTo({ center: positionRef.current, zoom: 16 }); }} aria-label={copy.game.returnToLocation}><Crosshair size={19} /></button></div>
 
       {(demo || GAME_CONFIG.developerControls) && developerOpen ? (
         <aside className="developer-panel" aria-label="Konum test paneli">
@@ -1781,11 +1891,24 @@ export function GameMap({ user, mapState: initialMapState, demo = false }: { use
 
       <aside className={`game-session-card${sessionIsCollapsed ? " is-collapsed" : ""}`}>
         {sessionIsCollapsed ? (
-          <button type="button" className="session-collapsed-summary" onClick={() => setSessionCardCollapsed(false)} aria-expanded="false" aria-label={formatMessage(copy.game.expandPanel, { title: session.state === "IDLE" ? (demo ? copy.game.demoRoute : copy.game.realRoute) : copy.game.sessionSummary })}>
-            <span className="session-icon">{session.state === "IDLE" ? <Footprints size={20} /> : <Check size={20} />}</span>
-            <span><small>{session.state === "IDLE" ? (demo ? copy.game.demoRoute : copy.game.realRoute) : copy.game.sessionCompleted}</small><strong>{session.state === "IDLE" ? copy.game.strategicRouteSummary : `${completedClaimCount} alan · ${(completedDistanceM / 1000).toFixed(2)} km`}</strong></span>
-            <ChevronDown size={18} />
-          </button>
+          session.state === "IDLE" || session.state === "FINISHED" ? (
+            <button type="button" className="session-collapsed-summary" onClick={() => setSessionCardCollapsed(false)} aria-expanded="false" aria-label={formatMessage(copy.game.expandPanel, { title: session.state === "IDLE" ? (demo ? copy.game.demoRoute : copy.game.realRoute) : copy.game.sessionSummary })}>
+              <span className="session-icon">{session.state === "IDLE" ? <Footprints size={20} /> : <Check size={20} />}</span>
+              <span><small>{session.state === "IDLE" ? (demo ? copy.game.demoRoute : copy.game.realRoute) : copy.game.sessionCompleted}</small><strong>{session.state === "IDLE" ? copy.game.strategicRouteSummary : `${completedClaimCount} alan · ${(completedDistanceM / 1000).toFixed(2)} km`}</strong></span>
+              <ChevronDown size={18} />
+            </button>
+          ) : (
+            <div className="session-collapsed-tracking" role="group" aria-label={copy.game.activeLocationRecord}>
+              <button type="button" className="session-collapsed-summary" onClick={() => setSessionCardCollapsed(false)} aria-expanded="false" aria-label={copy.game.expandLocationRecordPanel}>
+                <span className="session-icon"><span className={`recording-pulse${session.state === "PAUSED" || authoritativeActionBlocked ? " is-paused" : ""}`} /><Radio size={17} aria-hidden="true" /></span>
+                <span><small>{recordingStatusLabel}</small><strong>{formatTime(seconds)} · {demo ? `${(session.totalDistanceM / 1000).toFixed(2)} km` : routeSyncCopy.title}</strong></span>
+                <ChevronDown size={18} aria-hidden="true" />
+              </button>
+              <div className="session-actions session-collapsed-actions">
+                {canResetRevokedSession ? <button type="button" className="finish-button" onClick={resetSession}><RotateCcw size={17} /> {copy.game.newSession}</button> : <button type="button" className="finish-button" onClick={() => void stopTracking()} disabled={claimSubmitting || sessionFinishing || candidatePending || authoritativeActionBlocked}><Flag size={17} /> {sessionFinishing ? copy.game.finishing : copy.game.stopTracking}</button>}
+              </div>
+            </div>
+          )
         ) : session.state === "IDLE" ? (
           <>
             <div className="session-idle-head"><span className="session-icon"><Footprints size={24} /></span><div><span className="eyebrow">{demo ? copy.game.demoRoute : `${copy.game.realRoute} · ${authoritativeStateLabel}`}</span><h1>{copy.game.strategicRouteTitle}</h1></div><button type="button" className="session-collapse-button" onClick={() => setSessionCardCollapsed(true)} aria-label={copy.game.collapseRoutePanel} aria-expanded="true"><ChevronDown size={18} /></button></div>
@@ -1803,7 +1926,7 @@ export function GameMap({ user, mapState: initialMapState, demo = false }: { use
           </>
         ) : (
           <>
-            <div className="recording-header"><span className={`recording-pulse${session.state === "PAUSED" || authoritativeActionBlocked ? " is-paused" : ""}`} /><div><span role="status">{demo ? (sessionFinishing ? "Oturum tamamlanıyor" : session.state === "PAUSED" ? "Takip duraklatıldı" : session.state === "CLAIMING" ? "Alan doğrulanıyor" : "Rota canlı kaydediliyor") : sessionFinishing ? "Oturum tamamlanıyor" : session.state === "PAUSED" ? "Takip duraklatıldı" : authoritativeStateLabel}</span><strong>{formatTime(seconds)}</strong></div></div>
+            <div className="recording-header"><span className={`recording-pulse${session.state === "PAUSED" || authoritativeActionBlocked ? " is-paused" : ""}`} /><div><span role="status">{recordingStatusLabel}</span><strong>{formatTime(seconds)}</strong></div><button type="button" className="session-collapse-button" onClick={() => setSessionCardCollapsed(true)} aria-label={copy.game.collapseLocationRecordPanel} aria-expanded="true"><ChevronDown size={18} /></button></div>
             {!demo ? <div className={`route-sync-status ${routeSyncCopy.tone}`} role="status" aria-live="polite"><Radio size={15} aria-hidden="true" /><span><strong>{routeSyncCopy.title}</strong><small>{routeSyncCopy.detail}</small></span></div> : null}
             <div className="live-stats"><span><Route size={18} /><small>Mesafe</small><strong>{(session.totalDistanceM / 1000).toFixed(3)} km</strong></span><span><Timer size={18} /><small>Süre</small><strong>{formatTime(seconds)}</strong></span><span><Square size={18} /><small>Kapatma</small><strong>{session.claimCount}</strong></span></div>
             <div className="loop-progress"><div><strong>Döngü taraması</strong><span>{candidatePending ? "Sunucuda doğrulanıyor" : claimOpportunity ? "Geçerli döngü" : `${session.coordinates.length} nokta`}</span></div><p>{candidatePending ? "Rota noktaların güvenli biçimde doğrulanıyor…" : claimOpportunity ? `${Math.round(claimOpportunity.estimatedAreaM2)} m² kapatılabilir alan bulundu.` : diagnostic}</p></div>

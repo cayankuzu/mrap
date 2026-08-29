@@ -198,6 +198,17 @@ test.describe("mobil gerçek kullanıcı etkileşimleri", () => {
     await expect(avatar).toBeVisible();
     await expect(page.locator(".profile-cover .profile-pattern")).toHaveCount(0);
 
+    const avatarBox = await avatar.boundingBox();
+    expect(avatarBox, "Profil fotoğrafı ölçülebilir olmalı").not.toBeNull();
+    const avatarOverlapPoint = {
+      x: avatarBox!.x + avatarBox!.width / 2,
+      y: avatarBox!.y + 10,
+    };
+    const overlapBelongsToAvatar = await page.evaluate(({ x, y }) => {
+      return document.elementFromPoint(x, y)?.closest(".profile-avatar-trigger") !== null;
+    }, avatarOverlapPoint);
+    expect(overlapBelongsToAvatar, "Kapakla çakışan profil fotoğrafı bölümü avatarın tıklama katmanında kalmalı").toBe(true);
+
     await cover.click();
     const coverDialog = page.getByRole("dialog", { name: "Cayan Akın kapak fotoğrafı" });
     await expect(coverDialog).toBeVisible();
@@ -205,7 +216,7 @@ test.describe("mobil gerçek kullanıcı etkileşimleri", () => {
     await coverDialog.getByRole("button", { name: "Kapak fotoğrafını kapat" }).click();
     await expect(cover).toBeFocused();
 
-    await avatar.click();
+    await page.mouse.click(avatarOverlapPoint.x, avatarOverlapPoint.y);
     const avatarDialog = page.getByRole("dialog", { name: "Cayan Akın profil fotoğrafı" });
     await expect(avatarDialog).toBeVisible();
     await expect(avatarDialog.getByAltText("Cayan Akın profil fotoğrafı büyütülmüş görünüm")).toBeVisible();

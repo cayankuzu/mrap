@@ -10,6 +10,7 @@ export type LocationSample = {
   coordinate: Coordinate;
   accuracyM: number;
   timestamp: number;
+  headingDeg?: number;
 };
 
 export type PotentialLoop = {

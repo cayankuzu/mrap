@@ -402,6 +402,21 @@ test("mobil sanal GPS başlangıca dönmeden loop kapatır ve oturumu tamamlar",
   await page.getByRole("button", { name: "Harekete geç" }).click();
   await expect(page.getByText("Rota canlı kaydediliyor", { exact: true })).toBeVisible();
 
+  const sessionCard = page.locator(".game-session-card");
+  const collapseRecording = sessionCard.getByRole("button", { name: "Konum kayıt panelini küçült" });
+  await expectMinimumTouchTarget(collapseRecording, "Aktif konum kayıt paneli küçültme");
+  await collapseRecording.click();
+  const compactRecording = sessionCard.getByRole("group", { name: "Aktif konum kaydı" });
+  await expect(compactRecording).toBeVisible();
+  await expect(compactRecording.getByRole("button", { name: "Takibi bitir" })).toBeVisible();
+  await expect(sessionCard.locator(".live-stats")).toHaveCount(0);
+  await page.keyboard.press("w");
+  const expandRecording = compactRecording.getByRole("button", { name: "Konum kayıt panelini genişlet" });
+  await expectMinimumTouchTarget(expandRecording, "Aktif konum kayıt paneli genişletme");
+  await expandRecording.click();
+  await expect(sessionCard.locator(".live-stats")).toBeVisible();
+  await expect(sessionCard.locator(".live-stats > span").first()).not.toContainText("0.000 km");
+
   for (const key of ["w", "w", "w", "w", "d", "d", "d", "d", "s", "s", "s", "s", "a", "a", "a", "a"]) {
     await page.keyboard.press(key);
     await page.waitForTimeout(25);

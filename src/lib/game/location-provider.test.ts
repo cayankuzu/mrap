@@ -16,6 +16,22 @@ describe("konum sağlayıcı yaşam döngüsü", () => {
     expect(clearWatch).toHaveBeenCalledWith(42);
   });
 
+  it("GPS hareket yönünü yalnız istemci konum örneğine ekler", () => {
+    const onLocation = vi.fn();
+    const watchPosition = vi.fn((onSuccess: PositionCallback) => {
+      onSuccess({
+        coords: { longitude: 29, latitude: 41, accuracy: 6, heading: 92 },
+        timestamp: 1_000,
+      } as GeolocationPosition);
+      return 7;
+    });
+    vi.stubGlobal("navigator", { geolocation: { watchPosition, clearWatch: vi.fn() } });
+
+    new RealLocationProvider().start(onLocation, vi.fn());
+
+    expect(onLocation).toHaveBeenCalledWith(expect.objectContaining({ headingDeg: 92 }));
+  });
+
   it("GPS desteklenmiyorsa açıklayıcı hata verir ve güvenli no-op stop döndürür", () => {
     vi.stubGlobal("navigator", {});
     const onError = vi.fn();
@@ -32,5 +48,16 @@ describe("konum sağlayıcı yaşam döngüsü", () => {
     stop();
     provider.move(1, 0, 5);
     expect(onLocation).toHaveBeenCalledOnce();
+  });
+
+  it("simülasyon hareketinin baktığı yönü kuzey referanslı üretir", () => {
+    const onLocation = vi.fn();
+    const provider = new SimulatedLocationProvider([29, 41]);
+    provider.start(onLocation);
+    provider.move(1, 0, 5);
+    provider.move(0, -1, 5);
+
+    expect(onLocation.mock.calls.at(-2)?.[0]).toEqual(expect.objectContaining({ headingDeg: 90 }));
+    expect(onLocation.mock.calls.at(-1)?.[0]).toEqual(expect.objectContaining({ headingDeg: 180 }));
   });
 });
