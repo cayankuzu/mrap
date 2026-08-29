@@ -10,7 +10,8 @@ const mocks = vi.hoisted(() => ({
   findUserRowByEmail: vi.fn(),
   findUserRowByUsername: vi.fn(),
   hashPassword: vi.fn(() => ({ hash: "hash", salt: "salt" })),
-  resolveLocation: vi.fn(() => ({ country: "Türkiye", city: "İstanbul" })),
+  resolveLocation: vi.fn((): { country: string; city: string } | null => ({ country: "Türkiye", city: "İstanbul" })),
+  resolveWorldLocation: vi.fn(),
   verifyTurnstileMutation: vi.fn(),
 }));
 
@@ -20,6 +21,7 @@ vi.mock("@/lib/app-config", () => ({
   ROUTE_COLORS: ["#0D8BFF"],
   normalizeRouteColor: (value: unknown) => String(value).toUpperCase() === "#0D8BFF" ? "#0D8BFF" : null,
 }));
+vi.mock("@/lib/world-locations", () => ({ resolveWorldLocation: mocks.resolveWorldLocation }));
 vi.mock("@/lib/repository", () => ({
   createUser: mocks.createUser,
   findUserRowByEmail: mocks.findUserRowByEmail,
@@ -60,6 +62,7 @@ function request(body: Record<string, unknown>) {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.verifyTurnstileMutation.mockResolvedValue({ ok: true, bypassed: false });
+  mocks.resolveWorldLocation.mockResolvedValue(null);
   mocks.createUser.mockReturnValue({ id: "user-1", username: "ada_1990" });
 });
 
@@ -83,6 +86,25 @@ describe("kayıt yasal onay sınırı", () => {
       legalConsent: { termsVersion: CURRENT_TERMS_VERSION, privacyVersion: CURRENT_PRIVACY_VERSION },
     }));
     expect(mocks.createSession).toHaveBeenCalledWith("user-1", { persistent: true });
+  });
+
+  it("eski Türkiye ilçe kimliğini bağlı olduğu ilin kanonik kimliğiyle saklar", async () => {
+    mocks.resolveLocation.mockReturnValueOnce(null);
+    mocks.resolveWorldLocation.mockResolvedValueOnce({
+      country: "Türkiye",
+      city: "İstanbul",
+      cityId: "csc:TR:34:2170",
+    });
+
+    const response = await POST(request({ ...validBody, cityId: "csc:TR:34:153786" }));
+
+    expect(response.status).toBe(201);
+    expect(mocks.createUser).toHaveBeenCalledWith(expect.objectContaining({
+      countryCode: "TR",
+      cityId: "csc:TR:34:2170",
+      country: "Türkiye",
+      city: "İstanbul",
+    }));
   });
 
   it("geçerli hex görünse de palette bulunmayan rengi reddeder", async () => {

@@ -37,14 +37,26 @@ test("demo sıralaması ortak kapsam, arama ve çoklu konum filtrelerini kullan�
   const cityPicker = page.locator(".leaderboard-multiselect");
   await cityPicker.locator("summary").click();
   const cityPanel = cityPicker.locator(".leaderboard-multiselect-panel");
+  const cityCountry = cityPanel.getByRole("combobox", { name: /şehir seçimi.*ülke/i });
+  await expect.poll(() => cityCountry.locator("option").count()).toBeGreaterThan(240);
+  await expect(cityPanel.getByRole("checkbox")).toHaveCount(81);
+  await expect(cityPanel.getByRole("checkbox", { name: /Kadıköy|Çankaya/ })).toHaveCount(0);
   await cityPanel.getByRole("checkbox", { name: /Ankara/ }).check();
   await expect(cityPicker.locator("summary")).toContainText("2 şehir");
   await expect(cityPanel.getByRole("checkbox", { name: /İstanbul/ })).toBeChecked();
   await expect(cityPanel.getByRole("checkbox", { name: /Ankara/ })).toBeChecked();
-  await cityPicker.locator("summary").click();
   await expect(renderedPlayers).toHaveCount(5);
   await expect(page.locator(".leaderboard-view")).toContainText("@ecewrap");
   await expect(page.locator(".leaderboard-view")).toContainText("@borad");
+
+  await cityCountry.selectOption("DE");
+  const citySearch = cityPanel.getByRole("searchbox", { name: /şehir seçeneklerinde ara/i });
+  await citySearch.fill("Hamburg");
+  await expect(cityPanel.getByRole("checkbox", { name: "Hamburg Almanya", exact: true })).toBeVisible();
+  await cityPanel.getByRole("checkbox", { name: "Hamburg Almanya", exact: true }).check();
+  await expect(cityPicker.locator("summary")).toContainText("3 şehir");
+  await citySearch.fill("");
+  await cityPicker.locator("summary").click();
 
   await countryScope.click();
   await expect(countryScope).toHaveAttribute("aria-pressed", "true");
@@ -52,6 +64,7 @@ test("demo sıralaması ortak kapsam, arama ve çoklu konum filtrelerini kullan�
   const countryPicker = page.locator(".leaderboard-multiselect");
   await countryPicker.locator("summary").click();
   const countryPanel = countryPicker.locator(".leaderboard-multiselect-panel");
+  await expect(countryPanel.getByRole("checkbox", { name: "Japonya", exact: true })).toBeVisible();
   await countryPanel.getByRole("checkbox", { name: "Almanya", exact: true }).check();
   await expect(countryPicker.locator("summary")).toContainText("2 ülke");
   await expect(countryPanel.getByRole("checkbox", { name: "Türkiye", exact: true })).toBeChecked();
@@ -104,7 +117,7 @@ test("sıralama 320 pikselden masaüstüne taşmadan uyarlanır", async ({ page 
       const panel = picker.locator(".leaderboard-multiselect-panel");
       await expect(panel).toBeVisible();
       await expectNoHorizontalOverflow(page, "320px açık şehir seçimi");
-      for (const target of [panel.getByRole("button", { name: "Tümünü seç" }), panel.locator("label").first()]) {
+      for (const target of [panel.getByRole("button", { name: /^(Tümünü seç|İlk 20’yi seç)$/ }), panel.locator("label").first()]) {
         const box = await target.boundingBox();
         expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
         expect(box?.width ?? 0).toBeGreaterThanOrEqual(44);

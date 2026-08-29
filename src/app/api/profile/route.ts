@@ -32,7 +32,10 @@ export async function PUT(request: Request) {
     const username = normalizeUsername(String(body.username ?? user.username));
     const countryCode = String(body.countryCode ?? user.countryCode).trim().toUpperCase();
     const cityId = String(body.cityId ?? user.cityId).trim();
-    const location = resolveLocation(countryCode, cityId) ?? await resolveWorldLocation(countryCode, cityId);
+    const legacyLocation = resolveLocation(countryCode, cityId);
+    const worldLocation = legacyLocation ? null : await resolveWorldLocation(countryCode, cityId);
+    const location = legacyLocation ?? worldLocation;
+    const canonicalCityId = worldLocation?.cityId ?? cityId;
     const bio = String(body.bio ?? user.bio).trim();
     const birthDate = String(body.birthDate ?? user.birthDate);
     const birth = parseIsoCalendarDate(birthDate);
@@ -66,7 +69,7 @@ export async function PUT(request: Request) {
         color,
         bio,
         countryCode,
-        cityId,
+        cityId: canonicalCityId,
         country: location.country,
         city: location.city,
         birthDate,

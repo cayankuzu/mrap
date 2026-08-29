@@ -700,6 +700,11 @@ p {
 .leaderboard-multiselect-panel label small { margin-top: 1px; color: #5f6b63; font-size: 8px; }
 .leaderboard-multiselect-panel label > svg { visibility: hidden; color: var(--brand); }
 .leaderboard-multiselect-panel label:has(input:checked) > svg { visibility: visible; }
+.leaderboard-multiselect-panel .leaderboard-city-country-select { grid-template-columns: 20px minmax(0,1fr) 18px; margin-bottom: 7px; border: 1px solid var(--line); background: #f5f8f2; }
+.leaderboard-multiselect-panel .leaderboard-city-country-select:hover { background: #f5f8f2; }
+.leaderboard-multiselect-panel .leaderboard-city-country-select > svg { visibility: visible; color: #087f6d; }
+.leaderboard-multiselect-panel .leaderboard-city-country-select > span { display: grid; min-width: 0; gap: 1px; }
+.leaderboard-city-country-select select { width: 100%; min-width: 0; height: 25px; border: 0; outline: 0; background: transparent; color: var(--ink); font: inherit; font-size: 10px; font-weight: 800; cursor: pointer; appearance: none; }
 .leaderboard-multiselect-panel .leaderboard-option-search { display: grid; min-height: 44px; grid-template-columns: 18px minmax(0,1fr); margin-bottom: 7px; padding: 0 10px; border: 1px solid var(--line); border-radius: 10px; background: white; cursor: text; }
 .leaderboard-multiselect-panel .leaderboard-option-search:hover { background: white; }
 .leaderboard-multiselect-panel .leaderboard-option-search > svg { visibility: visible; color: #68756d; }

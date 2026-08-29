@@ -3,6 +3,7 @@ import { CONNECTION_PAGE_LIMITS, LEADERBOARD_LIMIT, PLAYER_SEARCH_LIMITS } from 
 import { encodeConnectionCursor } from "@/lib/connection-cursor";
 import { leaderboardCityKey } from "@/lib/leaderboard-filter";
 import type { ConnectionCursor, ConnectionPage, LeaderboardEntry, PlayerSearchResult, ScopedLeaderboardQuery, SocialConnection, UserListPlayer } from "@/lib/models";
+import { resolveWorldLocation } from "@/lib/world-locations";
 import { escapeSqlLike, normalizeUserSearchText } from "@/lib/user-search";
 
 type CompactUserRow = {
@@ -236,10 +237,10 @@ function scopedLeaderboardFilters(query: ScopedLeaderboardQuery) {
  * local adapter, so reading the compact candidate set in-process also lets us
  * bridge legacy/canonical city ids without relying on SQLite's ASCII collation.
  */
-export function getScopedLeaderboardFromDatabase(
+export async function getScopedLeaderboardFromDatabase(
   database: DatabaseSync,
   query: ScopedLeaderboardQuery,
-): LeaderboardEntry[] {
+): Promise<LeaderboardEntry[]> {
   const limit = query.limit ?? LEADERBOARD_LIMIT;
   assertLimit(limit, LEADERBOARD_LIMIT, "Sıralama limiti");
   const { cityKeys, countryCodes } = scopedLeaderboardFilters(query);
@@ -256,7 +257,7 @@ export function getScopedLeaderboardFromDatabase(
     ])
     : null;
 
-  const rows = database.prepare(`
+  const storedRows = database.prepare(`
     SELECT
       users.id,
       users.username,
@@ -274,6 +275,21 @@ export function getScopedLeaderboardFromDatabase(
     FROM users
     LEFT JOIN current_territories ON current_territories.user_id = users.id
   `).all() as ScopedLeaderboardRow[];
+
+  // Older TR profiles may still reference a district id from the upstream
+  // cities dataset. Resolve those ids through the same province catalog used
+  // by registration so neither district labels nor district ids reach the UI.
+  const rows = await Promise.all(storedRows.map(async (row) => {
+    if (row.country_code.trim().toUpperCase() !== "TR") return row;
+    const location = await resolveWorldLocation(row.country_code, row.city_id).catch(() => null);
+    return location ? {
+      ...row,
+      country_code: "TR",
+      city_id: location.cityId,
+      country: location.country,
+      city: location.city,
+    } : row;
+  }));
 
   return rows
     .filter((row) => {

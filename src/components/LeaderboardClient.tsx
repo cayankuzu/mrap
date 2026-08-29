@@ -47,7 +47,13 @@ function locationOptions(
   additional: LocationOption[] = [],
 ) {
   const options = new Map<string, LocationOption>([[current.id, current], ...additional.map((option) => [option.id, option] as const)]);
+  const catalogedCityCountries = new Set(additional
+    .map((option) => option.countryCode?.trim().toUpperCase())
+    .filter((code): code is string => Boolean(code)));
   for (const entry of entries) {
+    // Katalog yüklenmiş bir ülkede seçenekleri oyuncu profillerinden üretmek,
+    // eski ilçe kayıtlarını yeniden şehir filtresine sızdırabilir.
+    if (kind === "city" && catalogedCityCountries.has(entry.countryCode.trim().toUpperCase())) continue;
     const option = kind === "city"
       ? {
         id: leaderboardCityKey(entry.countryCode, entry.city),
@@ -80,12 +86,18 @@ function LocationMultiSelect({
   selected,
   onChange,
   onSearch,
+  browseCountry,
 }: {
   kind: "city" | "country";
   options: LocationOption[];
   selected: ReadonlySet<string>;
   onChange: (next: Set<string>) => void;
   onSearch?: (query: string) => void;
+  browseCountry?: {
+    value: string;
+    options: LocationOption[];
+    onChange: (countryCode: string) => void;
+  };
 }) {
   const { dictionary: copy } = useI18n();
   const [filterQuery, setFilterQuery] = useState("");
@@ -95,9 +107,12 @@ function LocationMultiSelect({
     ? selectedOptions[0].label
     : formatMessage(kind === "city" ? copy.leaderboard.cityCount : copy.leaderboard.countryCount, { count: selectedOptions.length });
   const normalizedFilter = normalizeUserSearchText(filterQuery);
-  const visibleOptions = normalizedFilter
-    ? options.filter((option) => normalizeUserSearchText(`${option.label} ${option.context ?? ""}`).includes(normalizedFilter))
+  const countryScopedOptions = kind === "city" && browseCountry
+    ? options.filter((option) => option.countryCode === browseCountry.value)
     : options;
+  const visibleOptions = normalizedFilter
+    ? countryScopedOptions.filter((option) => normalizeUserSearchText(`${option.label} ${option.context ?? ""}`).includes(normalizedFilter))
+    : countryScopedOptions;
 
   const toggle = (id: string) => {
     const next = new Set(selected);
@@ -125,6 +140,24 @@ function LocationMultiSelect({
             {visibleOptions.length > MAX_LOCATION_SELECTIONS ? copy.leaderboard.selectLimit : copy.leaderboard.selectAll}
           </button>
         </header>
+        {kind === "city" && browseCountry ? (
+          <label className="leaderboard-city-country-select">
+            <Globe2 size={16} aria-hidden="true" />
+            <span><small>{copy.leaderboard.country}</small>
+              <select
+                value={browseCountry.value}
+                onChange={(event) => {
+                  setFilterQuery("");
+                  browseCountry.onChange(event.target.value);
+                }}
+                aria-label={`${copy.leaderboard.citySelection} · ${copy.leaderboard.country}`}
+              >
+                {browseCountry.options.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
+              </select>
+            </span>
+            <ChevronDown size={16} aria-hidden="true" />
+          </label>
+        ) : null}
         <label className="leaderboard-option-search">
           <Search size={16} aria-hidden="true" />
           <input
@@ -175,9 +208,12 @@ export function LeaderboardClient({
   const [selectedCountryCodes, setSelectedCountryCodes] = useState(() => new Set([currentUser.countryCode]));
   const [remoteEntries, setRemoteEntries] = useState(entries);
   const [discoveredCities, setDiscoveredCities] = useState<LocationOption[]>([]);
+  const [discoveredCountries, setDiscoveredCountries] = useState<LocationOption[]>([]);
+  const [cityBrowseCountryCode, setCityBrowseCountryCode] = useState(currentUser.countryCode.toUpperCase());
   const [remoteStatus, setRemoteStatus] = useState<"idle" | "loading" | "error">("idle");
   const abortRef = useRef<AbortController | null>(null);
   const citySearchAbortRef = useRef<AbortController | null>(null);
+  const countryCatalogAbortRef = useRef<AbortController | null>(null);
   const citySearchTimerRef = useRef<number | null>(null);
   const requestSerialRef = useRef(0);
 
@@ -199,10 +235,10 @@ export function LeaderboardClient({
     countryCode: option.countryCode,
     city: option.city,
   })), [catalogCities, discoveredCities]);
-  const catalogCountryLocations = useMemo(() => catalogCountries.map((option) => ({
+  const catalogCountryLocations = useMemo(() => [...catalogCountries.map((option) => ({
     id: option.countryCode.toUpperCase(),
     label: option.country,
-  })), [catalogCountries]);
+  })), ...discoveredCountries], [catalogCountries, discoveredCountries]);
   const cities = useMemo(() => locationOptions(locationSource, {
     id: currentCityKey,
     label: currentUser.city,
@@ -214,6 +250,8 @@ export function LeaderboardClient({
     id: currentUser.countryCode.toUpperCase(),
     label: currentUser.country,
   }, "country", catalogCountryLocations), [catalogCountryLocations, currentUser.country, currentUser.countryCode, locationSource]);
+  const cityBrowseCountry = countries.find((option) => option.id === cityBrowseCountryCode)
+    ?? { id: currentUser.countryCode.toUpperCase(), label: currentUser.country };
   const cacheRef = useRef(new Map<string, LeaderboardEntry[]>([
     [requestCacheKey("city", new Set([currentCityKey]), new Set()), entries],
     ...(optionEntries ? [[requestCacheKey("world", new Set(), new Set()), optionEntries] as const] : []),
@@ -271,18 +309,38 @@ export function LeaderboardClient({
   useEffect(() => () => {
     abortRef.current?.abort();
     citySearchAbortRef.current?.abort();
+    countryCatalogAbortRef.current?.abort();
     if (citySearchTimerRef.current !== null) window.clearTimeout(citySearchTimerRef.current);
   }, []);
+
+  useEffect(() => {
+    if (catalogCountries.length >= 200) return;
+    const controller = new AbortController();
+    countryCatalogAbortRef.current?.abort();
+    countryCatalogAbortRef.current = controller;
+    void fetch("/api/locations/countries", { signal: controller.signal })
+      .then(async (response) => {
+        const body = await response.json() as { countries?: Array<{ code: string; label: string }> };
+        if (!response.ok || !Array.isArray(body.countries)) return;
+        setDiscoveredCountries(body.countries
+          .filter((country) => /^[A-Z]{2}$/.test(country.code) && Boolean(country.label?.trim()))
+          .map((country) => ({ id: country.code, label: country.label.trim() })));
+      })
+      .catch(() => {
+        // Katalog geçici olarak erişilemezse sunucudan gelen seçenekler korunur.
+      });
+    return () => controller.abort();
+  }, [catalogCountries.length]);
 
   const searchCityOptions = useCallback((rawQuery: string) => {
     if (citySearchTimerRef.current !== null) window.clearTimeout(citySearchTimerRef.current);
     citySearchAbortRef.current?.abort();
-    if (!remote || rawQuery.trim().length < 2) return;
+    if (rawQuery.trim().length === 1) return;
     const controller = new AbortController();
     citySearchAbortRef.current = controller;
     citySearchTimerRef.current = window.setTimeout(async () => {
       try {
-        const params = new URLSearchParams({ country: currentUser.countryCode, q: rawQuery.trim() });
+        const params = new URLSearchParams({ country: cityBrowseCountry.id, q: rawQuery.trim() });
         const response = await fetch(`/api/locations/cities?${params}`, { signal: controller.signal });
         const body = await response.json() as { cities?: Array<{ label: string }> };
         if (!response.ok || !Array.isArray(body.cities)) return;
@@ -291,12 +349,12 @@ export function LeaderboardClient({
           const merged = new Map(current.map((option) => [option.id, option]));
           for (const city of receivedCities) {
             if (!city.label?.trim()) continue;
-            const id = leaderboardCityKey(currentUser.countryCode, city.label);
+            const id = leaderboardCityKey(cityBrowseCountry.id, city.label);
             merged.set(id, {
               id,
               label: city.label,
-              context: currentUser.country,
-              countryCode: currentUser.countryCode,
+              context: cityBrowseCountry.label,
+              countryCode: cityBrowseCountry.id,
               city: city.label,
             });
           }
@@ -305,8 +363,12 @@ export function LeaderboardClient({
       } catch {
         // Katalog araması ana sıralamayı engellemez; mevcut seçenekler korunur.
       }
-    }, 220);
-  }, [currentUser.country, currentUser.countryCode, remote]);
+    }, rawQuery.trim() ? 220 : 0);
+  }, [cityBrowseCountry.id, cityBrowseCountry.label]);
+
+  useEffect(() => {
+    searchCityOptions("");
+  }, [searchCityOptions]);
 
   const selectScope = (nextScope: LeaderboardScope) => {
     setScope(nextScope);
@@ -352,7 +414,14 @@ export function LeaderboardClient({
           ))}
         </div>
         <div className="leaderboard-tool-row">
-          {scope === "city" ? <LocationMultiSelect kind="city" options={cities} selected={selectedCityKeys} onChange={selectCities} onSearch={searchCityOptions} /> : null}
+          {scope === "city" ? <LocationMultiSelect
+            kind="city"
+            options={cities}
+            selected={selectedCityKeys}
+            onChange={selectCities}
+            onSearch={searchCityOptions}
+            browseCountry={{ value: cityBrowseCountryCode, options: countries, onChange: setCityBrowseCountryCode }}
+          /> : null}
           {scope === "country" ? <LocationMultiSelect kind="country" options={countries} selected={selectedCountryCodes} onChange={selectCountries} /> : null}
           <label className="search-field leaderboard-search">
             <Search size={18} aria-hidden="true" />

@@ -44,6 +44,7 @@ import { resolveSupabaseMediaBucket } from "@/lib/supabase/server-config";
 import { normalizeEmail, normalizeUsername } from "@/lib/validation";
 import { escapeSqlLike, normalizeUserSearchText } from "@/lib/user-search";
 import { userMediaReference } from "@/lib/user-media-reference";
+import { resolveWorldLocation, searchWorldCities } from "@/lib/world-locations";
 import { PROFILE_IMAGE_DATA_URL_MAX_LENGTH } from "@/server/http/api-security";
 import { decodeSanitizedImageDataUrl, sanitizeImageDataUrl, sanitizeImageDataUrls } from "@/server/http/media-validation";
 
@@ -169,6 +170,10 @@ function compactPlayer(row: UserRow): UserListPlayer {
 }
 
 async function profileLocation(profile: ProfileRow) {
+  const canonicalLocation = profile.country_code.trim().toUpperCase() === "TR"
+    ? await resolveWorldLocation(profile.country_code, profile.city_id).catch(() => null)
+    : null;
+  if (canonicalLocation) return canonicalLocation;
   const admin = createMrapSupabaseAdminClient();
   const [countryResult, cityResult] = await Promise.all([
     admin.from("countries").select("name_tr").eq("code", profile.country_code).maybeSingle(),
@@ -179,6 +184,7 @@ async function profileLocation(profile: ProfileRow) {
   return {
     country: String(countryResult.data?.name_tr ?? profile.country_code),
     city: String(cityResult.data?.name_tr ?? profile.city_id),
+    cityId: profile.city_id,
   };
 }
 
@@ -206,7 +212,7 @@ async function hydrateUserRow(userId: string, knownEmail?: string | null): Promi
     color: profile.color,
     pattern: profile.pattern,
     country_code: profile.country_code,
-    city_id: profile.city_id,
+    city_id: location.cityId,
     country: location.country,
     city: location.city,
     bio: profile.bio,
@@ -258,7 +264,13 @@ async function hydratePublicRows(userIds: readonly string[]) {
   ]);
   const cities = new Map(cityRows.map((row) => [String(row.id), String(row.name_tr)]));
   const countries = new Map(countryRows.map((row) => [String(row.code), String(row.name_tr)]));
+  const canonicalLocations = new Map((await Promise.all(profiles.map(async (profile) => {
+    if (profile.country_code.trim().toUpperCase() !== "TR") return null;
+    const location = await resolveWorldLocation(profile.country_code, profile.city_id).catch(() => null);
+    return location ? [profile.id, location] as const : null;
+  }))).filter((entry): entry is readonly [string, NonNullable<Awaited<ReturnType<typeof resolveWorldLocation>>>] => Boolean(entry)));
   for (const profile of profiles) {
+    const canonicalLocation = canonicalLocations.get(profile.id);
     rows.set(profile.id, {
       id: profile.id,
       email: "",
@@ -269,9 +281,9 @@ async function hydratePublicRows(userIds: readonly string[]) {
       color: profile.color,
       pattern: profile.pattern,
       country_code: profile.country_code,
-      city_id: profile.city_id,
-      country: countries.get(profile.country_code) ?? profile.country_code,
-      city: cities.get(profile.city_id) ?? profile.city_id,
+      city_id: canonicalLocation?.cityId ?? profile.city_id,
+      country: canonicalLocation?.country ?? countries.get(profile.country_code) ?? profile.country_code,
+      city: canonicalLocation?.city ?? cities.get(profile.city_id) ?? profile.city_id,
       bio: profile.bio,
       birth_date: "",
       account_visibility: profile.account_visibility,
@@ -1649,6 +1661,15 @@ async function selectedLeaderboardCityIds(
 ) {
   const admin = createMrapSupabaseAdminClient();
   const ids = new Set<string>();
+  const selectedTurkishProvinceCodes = new Set<string>();
+  if (countryCodes.has("TR")) {
+    const provinceCatalog = await searchWorldCities({ countryCode: "TR" });
+    for (const province of provinceCatalog.cities) {
+      if (cityKeys.has(leaderboardCityKey("TR", province.label))) {
+        selectedTurkishProvinceCodes.add(province.stateCode);
+      }
+    }
+  }
   for (let from = 0; ; from += SUPABASE_PAGE_SIZE) {
     const page = await admin.from("cities").select("id,country_code,name_tr")
       .in("country_code", [...countryCodes])
@@ -1656,7 +1677,13 @@ async function selectedLeaderboardCityIds(
       .range(from, from + SUPABASE_PAGE_SIZE - 1);
     assertNoError(page.error, "Sıralama şehir kataloğu okuma");
     for (const row of page.data ?? []) {
-      if (cityKeys.has(leaderboardCityKey(String(row.country_code), String(row.name_tr)))) ids.add(String(row.id));
+      const countryCode = String(row.country_code).trim().toUpperCase();
+      const id = String(row.id);
+      const turkishStateCode = countryCode === "TR" ? /^csc:TR:([^:]+):\d+$/.exec(id)?.[1] : undefined;
+      if (cityKeys.has(leaderboardCityKey(countryCode, String(row.name_tr)))
+        || Boolean(turkishStateCode && selectedTurkishProvinceCodes.has(turkishStateCode))) {
+        ids.add(id);
+      }
     }
     if ((page.data ?? []).length < SUPABASE_PAGE_SIZE) break;
   }

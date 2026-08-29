@@ -25,7 +25,7 @@ export default async function LeaderboardPage() {
       limit: LEADERBOARD_LIMIT,
     }),
     getWorldCountries().catch(() => []),
-    searchWorldCities({ countryCode: user.countryCode, limit: 80 }).catch(() => ({ cities: [], hasMore: false })),
+    searchWorldCities({ countryCode: user.countryCode }).catch(() => ({ cities: [], hasMore: false })),
   ]);
   const cityOptions = cityCatalog.cities.map((city) => ({
     countryCode: user.countryCode,

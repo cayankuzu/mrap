@@ -2,9 +2,12 @@ import "server-only";
 
 import {
   getAllCitiesOfCountry,
+  getCityById,
   getCountries,
+  getStatesOfCountry,
   type ICity,
   type ICountry,
+  type IState,
 } from "@countrystatecity/countries";
 import { resolveLocation as resolveLegacyLocation } from "@/lib/app-config";
 
@@ -15,12 +18,14 @@ export const WORLD_LOCATION_LIMITS = Object.freeze({
   cityCacheCountryCount: 8,
   cityCacheTtlMs: 30 * 60 * 1_000,
   cityQueryLength: 80,
-  cityResultCount: 80,
+  cityResultCount: 100,
   selectedCityIdLength: 100,
 });
 
 const COUNTRY_CODE_PATTERN = /^[A-Z]{2}$/;
 const WORLD_CITY_ID_PATTERN = /^csc:([A-Z]{2}):([^:]+):(\d+)$/;
+// The upstream TR city files contain districts; its province list is the canonical 81-city catalog.
+const PROVINCE_CATALOG_COUNTRY_CODES = new Set(["TR"]);
 type IndexedCity = WorldCityOption & Readonly<{ searchValue: string }>;
 type CityCacheEntry = {
   promise: Promise<readonly IndexedCity[]>;
@@ -61,8 +66,20 @@ function cityLabel(city: ICity) {
   return legacy?.city || city.native?.trim() || city.name;
 }
 
+function provinceLabel(province: IState) {
+  const legacy = resolveLegacyLocation(
+    province.country_code,
+    `${province.country_code.toLocaleLowerCase("en-US")}-${legacySlug(province.name)}`,
+  );
+  return legacy?.city || province.native?.trim() || province.name;
+}
+
 function cityId(city: ICity) {
   return `csc:${city.country_code.toUpperCase()}:${city.state_code || "_"}:${city.id}`;
+}
+
+function provinceId(province: IState) {
+  return `csc:${province.country_code.toUpperCase()}:${province.iso2 || "_"}:${province.id}`;
 }
 
 async function loadCountries() {
@@ -78,6 +95,10 @@ async function loadCountries() {
 
 function worldCityOption(city: ICity): WorldCityOption {
   return { id: cityId(city), label: cityLabel(city), stateCode: city.state_code };
+}
+
+function worldProvinceOption(province: IState): WorldCityOption {
+  return { id: provinceId(province), label: provinceLabel(province), stateCode: province.iso2 };
 }
 
 function pruneCityCache(now: number) {
@@ -110,11 +131,13 @@ async function loadCityIndex(countryCode: string) {
 
   if (cached) cityCache.delete(code);
   pruneCityCache(now);
-  const pending = Promise.all([getAllCitiesOfCountry(code), loadCountries()]).then(([cities, countries]) => {
+  const locationsPromise = PROVINCE_CATALOG_COUNTRY_CODES.has(code)
+    ? getStatesOfCountry(code).then((provinces) => provinces.map(worldProvinceOption))
+    : getAllCitiesOfCountry(code).then((cities) => cities.map(worldCityOption));
+  const pending = Promise.all([locationsPromise, loadCountries()]).then(([locations, countries]) => {
     const seen = new Set<string>();
     const indexed: IndexedCity[] = [];
-    for (const city of cities) {
-      const option = worldCityOption(city);
+    for (const option of locations) {
       if (seen.has(option.id)) continue;
       seen.add(option.id);
       indexed.push({ ...option, searchValue: normalizeSearch(`${option.label} ${option.stateCode}`) });
@@ -194,6 +217,10 @@ export async function resolveWorldCity(countryCode: string, selectedCityId: stri
 
   if (worldMatch && worldMatch[1] === code) {
     city = allCities.find((item) => item.id === boundedSelectedCityId);
+    if (!city && PROVINCE_CATALOG_COUNTRY_CODES.has(code)) {
+      const legacyCity = await getCityById(code, worldMatch[2], Number(worldMatch[3]));
+      if (legacyCity) city = allCities.find((item) => item.stateCode === legacyCity.state_code);
+    }
   } else if (boundedSelectedCityId.toLocaleLowerCase("en-US").startsWith(`${code.toLocaleLowerCase("en-US")}-`)) {
     const expectedSlug = boundedSelectedCityId.slice(3);
     city = allCities.find((item) => legacySlug(item.label) === expectedSlug);
@@ -204,11 +231,11 @@ export async function resolveWorldCity(countryCode: string, selectedCityId: stri
 
 export async function resolveWorldLocation(countryCode: string, selectedCityId: string) {
   const legacy = resolveLegacyLocation(countryCode, selectedCityId);
-  if (legacy) return legacy;
+  if (legacy) return { ...legacy, cityId: selectedCityId };
   const code = countryCode.trim().toUpperCase();
   const [countries, city] = await Promise.all([loadCountries(), resolveWorldCity(code, selectedCityId)]);
   const country = countries.find((item) => item.iso2.toUpperCase() === code);
-  return country && city ? { country: countryLabel(country), city: city.label } : null;
+  return country && city ? { country: countryLabel(country), city: city.label, cityId: city.id } : null;
 }
 
 export function isWorldCityId(value: string) {

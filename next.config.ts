@@ -9,6 +9,8 @@ const nextConfig: NextConfig = {
     "/api/locations/*": ["./node_modules/@countrystatecity/countries/dist/data/**/*"],
     "/api/auth/register": ["./node_modules/@countrystatecity/countries/dist/data/**/*"],
     "/api/profile": ["./node_modules/@countrystatecity/countries/dist/data/**/*"],
+    "/api/leaderboard": ["./node_modules/@countrystatecity/countries/dist/data/**/*"],
+    "/leaderboard": ["./node_modules/@countrystatecity/countries/dist/data/**/*"],
   },
   allowedDevOrigins: ["127.0.0.1", "localhost"],
   async headers() {

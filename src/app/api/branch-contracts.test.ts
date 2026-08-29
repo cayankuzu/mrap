@@ -343,6 +343,26 @@ describe("profil API branch sözleşmeleri", () => {
     expect(response.status).toBe(400);
   });
 
+  it("eski Türkiye ilçe kimliğini profil kaydında kanonik il kimliğine taşır", async () => {
+    mocks.resolveLocation.mockReturnValueOnce(null);
+    mocks.resolveWorldLocation.mockResolvedValueOnce({
+      country: "Türkiye",
+      city: "İstanbul",
+      cityId: "csc:TR:34:2170",
+    });
+
+    const response = await updateProfile(request("http://localhost/api/profile", "PUT", profileBody({
+      cityId: "csc:TR:34:153786",
+    })));
+
+    expect(response.status).toBe(200);
+    expect(mocks.updateUser).toHaveBeenCalledWith("user-1", expect.objectContaining({
+      cityId: "csc:TR:34:2170",
+      country: "Türkiye",
+      city: "İstanbul",
+    }));
+  });
+
   it("geçerli null ve JPEG görsellerini normalize eder; doğum günü gelmediyse yaşı bir azaltır", async () => {
     mocks.findUserRowByUsername.mockReturnValue({ id: "user-1" });
     const updated = { ...currentUser, avatarData: null, coverData: validJpeg };

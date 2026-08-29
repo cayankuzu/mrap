@@ -1,6 +1,6 @@
 {
   "name": "mrap",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "private": true,
   "packageManager": "npm@11.19.0",
   "engines": {

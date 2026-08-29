@@ -28,7 +28,10 @@ export async function POST(request: Request) {
     const birthDate = String(body.birthDate ?? "");
     const countryCode = String(body.countryCode ?? "").trim().toUpperCase();
     const cityId = String(body.cityId ?? "").trim();
-    const location = resolveLocation(countryCode, cityId) ?? await resolveWorldLocation(countryCode, cityId);
+    const legacyLocation = resolveLocation(countryCode, cityId);
+    const worldLocation = legacyLocation ? null : await resolveWorldLocation(countryCode, cityId);
+    const location = legacyLocation ?? worldLocation;
+    const canonicalCityId = worldLocation?.cityId ?? cityId;
     const birth = parseIsoCalendarDate(birthDate);
 
     if (!hasCurrentLegalConsent(body)) return noStoreJson({ error: "Güncel kullanım koşulları ve gizlilik politikasını kabul etmelisin." }, { status: 400 });
@@ -61,7 +64,7 @@ export async function POST(request: Request) {
           displayName,
           birthDate,
           countryCode,
-          cityId,
+          cityId: canonicalCityId,
           country: location.country,
           city: location.city,
           color,
@@ -88,7 +91,7 @@ export async function POST(request: Request) {
     try {
       user = await createUser({
         email, username, displayName, passwordHash: passwordResult.hash, passwordSalt: passwordResult.salt,
-        color, birthDate, countryCode, cityId, country: location.country, city: location.city,
+        color, birthDate, countryCode, cityId: canonicalCityId, country: location.country, city: location.city,
         legalConsent: { termsVersion: String(body.termsVersion), privacyVersion: String(body.privacyVersion) },
       });
     } catch (error) {

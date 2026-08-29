@@ -10,7 +10,7 @@ vi.mock("@/server/http/rate-limit", () => ({ checkRateLimit: mocks.checkRateLimi
 vi.mock("@/lib/world-locations", () => ({
   WORLD_LOCATION_LIMITS: {
     cityQueryLength: 80,
-    cityResultCount: 80,
+    cityResultCount: 100,
     selectedCityIdLength: 100,
   },
   getWorldCountries: mocks.getWorldCountries,
@@ -56,7 +56,7 @@ describe("konum kataloğu endpoint korumaları", () => {
       countryCode: "TR",
       query: "ankara",
       selectedCityId: "",
-      limit: 80,
+      limit: 100,
     });
   });
 

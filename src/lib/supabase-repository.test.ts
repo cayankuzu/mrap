@@ -162,7 +162,7 @@ describe("Supabase repository production sözleşmeleri", () => {
     expect(double.queryLog.filter((entry) => entry.table === "route_sessions")).toHaveLength(2);
   });
 
-  it("kapsamlı şehir sıralamasında canonical/legacy kimlikleri birleştirir ve eksik score'u sıfır kabul eder", async () => {
+  it("kapsamlı şehir sıralamasında eski ilçe kimliklerini ile birleştirir ve eksik score'u sıfır kabul eder", async () => {
     const profiles = [
       { ...profile, id: "00000000-0000-4000-8000-000000000011", username: "legacy", city_id: "tr-istanbul", created_at: "2026-01-01T00:00:00.000Z" },
       { ...profile, id: "00000000-0000-4000-8000-000000000012", username: "canonical", city_id: "csc:TR:34:153786", created_at: "2026-01-02T00:00:00.000Z" },
@@ -181,7 +181,7 @@ describe("Supabase repository production sözleşmeleri", () => {
       }
       if (table === "cities") return { data: [
         { id: "tr-istanbul", country_code: "TR", name_tr: "İstanbul" },
-        { id: "csc:TR:34:153786", country_code: "TR", name_tr: "İstanbul" },
+        { id: "csc:TR:34:153786", country_code: "TR", name_tr: "Adalar" },
         { id: "de-berlin", country_code: "DE", name_tr: "Berlin" },
       ], error: null };
       if (table === "countries") return { data: [
@@ -208,7 +208,10 @@ describe("Supabase repository production sözleşmeleri", () => {
       ["canonical", 1.5, 1],
       ["legacy", 0, 2],
     ]);
-    expect(result.map((entry) => entry.cityId)).toEqual(["csc:TR:34:153786", "tr-istanbul"]);
+    expect(result.map((entry) => entry.city)).toEqual(["İstanbul", "İstanbul"]);
+    expect(result[0].cityId).toMatch(/^csc:TR:34:/);
+    expect(result[0].cityId).not.toBe("csc:TR:34:153786");
+    expect(result[1].cityId).toBe("tr-istanbul");
     const hydration = double.queryLog.find((entry) => entry.table === "profiles"
       && String(operation(entry.operations, "select")?.args[0] ?? "").includes("username"));
     expect(new Set(operation(hydration!.operations, "in")?.args[1] as string[])).toEqual(new Set([

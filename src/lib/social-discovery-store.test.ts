@@ -1,5 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("server-only", () => ({}));
 import { decodeConnectionCursor } from "@/lib/connection-cursor";
 import { getLeaderboardFromDatabase, getScopedLeaderboardFromDatabase, listConnectionPageFromDatabase, searchPlayersFromDatabase } from "@/lib/social-discovery-store";
 import { buildUserSearchKey } from "@/lib/user-search";
@@ -104,7 +106,7 @@ describe("kompakt sıralama", () => {
     expect(JSON.stringify(entries)).not.toContain("base64");
   });
 
-  it("global ilk 100 dışında kalan oyuncuyu seçili şehrin sıralamasında kaybetmez", () => {
+  it("global ilk 100 dışında kalan oyuncuyu seçili şehrin sıralamasında kaybetmez", async () => {
     insertUser("izmir-low", "izmirli", "İzmirli Oyuncu");
     database.prepare("UPDATE users SET city_id = 'tr-izmir', city = 'İzmir' WHERE id = 'izmir-low'").run();
 
@@ -116,7 +118,7 @@ describe("kompakt sıralama", () => {
     }
 
     expect(getLeaderboardFromDatabase(database, undefined, 100).some((entry) => entry.id === "izmir-low")).toBe(false);
-    const city = getScopedLeaderboardFromDatabase(database, {
+    const city = await getScopedLeaderboardFromDatabase(database, {
       scope: "city",
       viewerId: "viewer-1",
       cities: [{ countryCode: "TR", city: "İzmir" }],
@@ -126,7 +128,7 @@ describe("kompakt sıralama", () => {
     expect(city[0].rank).toBe(1);
   });
 
-  it("global ilk 100 dışında kalan takip edilen oyuncuyu arkadaşlar kapsamında döndürür", () => {
+  it("global ilk 100 dışında kalan takip edilen oyuncuyu arkadaşlar kapsamında döndürür", async () => {
     insertUser("friend-low", "uzakarkadas", "Uzak Arkadaş");
     database.prepare("INSERT INTO follows (follower_id, followed_id) VALUES ('viewer-1', 'friend-low')").run();
 
@@ -137,7 +139,7 @@ describe("kompakt sıralama", () => {
     }
 
     expect(getLeaderboardFromDatabase(database, undefined, 100).some((entry) => entry.id === "friend-low")).toBe(false);
-    const friends = getScopedLeaderboardFromDatabase(database, {
+    const friends = await getScopedLeaderboardFromDatabase(database, {
       scope: "friends",
       viewerId: "viewer-1",
       limit: 100,
@@ -146,11 +148,11 @@ describe("kompakt sıralama", () => {
     expect(friends).toHaveLength(3);
   });
 
-  it("birden fazla şehir ve ülkeyi kapsam içinde OR mantığıyla birleştirir", () => {
+  it("birden fazla şehir ve ülkeyi kapsam içinde OR mantığıyla birleştirir", async () => {
     database.prepare("UPDATE users SET country_code = 'DE', country = 'Almanya', city_id = 'de-berlin', city = 'Berlin' WHERE id = 'player-2'").run();
     database.prepare("UPDATE users SET country_code = 'FR', country = 'Fransa', city_id = 'fr-paris', city = 'Paris' WHERE id = 'player-3'").run();
 
-    const cities = getScopedLeaderboardFromDatabase(database, {
+    const cities = await getScopedLeaderboardFromDatabase(database, {
       scope: "city",
       viewerId: "viewer-1",
       cities: [
@@ -161,7 +163,7 @@ describe("kompakt sıralama", () => {
     });
     expect(cities.map((entry) => entry.id)).toEqual(["player-1", "player-2", "viewer-1"]);
 
-    const countries = getScopedLeaderboardFromDatabase(database, {
+    const countries = await getScopedLeaderboardFromDatabase(database, {
       scope: "country",
       viewerId: "viewer-1",
       countryCodes: ["TR", "DE"],
@@ -170,21 +172,24 @@ describe("kompakt sıralama", () => {
     expect(countries.map((entry) => entry.id)).toEqual(["player-1", "player-2", "viewer-1"]);
   });
 
-  it("legacy ve canonical id kullanan aynı şehri tek şehir kapsamına alır", () => {
+  it("eski ilçe kimliğini bağlı olduğu ile dönüştürüp aynı şehir kapsamına alır", async () => {
     insertUser("canonical-istanbul", "canonical", "Canonical İstanbul", null, "csc:TR:34:153786");
+    database.prepare("UPDATE users SET city = 'Adalar' WHERE id = 'canonical-istanbul'").run();
     database.prepare("INSERT INTO current_territories (user_id, area_m2) VALUES ('canonical-istanbul', 3000000)").run();
 
-    const city = getScopedLeaderboardFromDatabase(database, {
+    const city = await getScopedLeaderboardFromDatabase(database, {
       scope: "city",
       cities: [{ countryCode: "tr", city: "ISTANBUL" }],
       limit: 4,
     });
 
-    expect(city.map((entry) => [entry.id, entry.cityId])).toEqual([
-      ["canonical-istanbul", "csc:TR:34:153786"],
-      ["player-1", "tr-istanbul"],
-      ["player-2", "tr-istanbul"],
-      ["viewer-1", "tr-istanbul"],
+    expect(city.map((entry) => [entry.id, entry.city])).toEqual([
+      ["canonical-istanbul", "İstanbul"],
+      ["player-1", "İstanbul"],
+      ["player-2", "İstanbul"],
+      ["viewer-1", "İstanbul"],
     ]);
+    expect(city[0].cityId).toMatch(/^csc:TR:34:/);
+    expect(city[0].cityId).not.toBe("csc:TR:34:153786");
   });
 });
