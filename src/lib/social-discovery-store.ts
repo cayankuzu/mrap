@@ -1,7 +1,8 @@
 import type { DatabaseSync } from "node:sqlite";
 import { CONNECTION_PAGE_LIMITS, LEADERBOARD_LIMIT, PLAYER_SEARCH_LIMITS } from "@/lib/content-limits";
 import { encodeConnectionCursor } from "@/lib/connection-cursor";
-import type { ConnectionCursor, ConnectionPage, LeaderboardEntry, PlayerSearchResult, SocialConnection, UserListPlayer } from "@/lib/models";
+import { leaderboardCityKey } from "@/lib/leaderboard-filter";
+import type { ConnectionCursor, ConnectionPage, LeaderboardEntry, PlayerSearchResult, ScopedLeaderboardQuery, SocialConnection, UserListPlayer } from "@/lib/models";
 import { escapeSqlLike, normalizeUserSearchText } from "@/lib/user-search";
 
 type CompactUserRow = {
@@ -147,6 +148,9 @@ export function getLeaderboardFromDatabase(database: DatabaseSync, cityId?: stri
       users.display_name,
       users.color,
       users.pattern,
+      users.country_code,
+      users.city_id,
+      users.country,
       users.city,
       (users.avatar_data IS NOT NULL) AS user_has_avatar,
       COALESCE(current_territories.area_m2 / 1000000.0, 0) AS area,
@@ -162,6 +166,9 @@ export function getLeaderboardFromDatabase(database: DatabaseSync, cityId?: stri
     display_name: string;
     color: string;
     pattern: number;
+    country_code: string;
+    city_id: string;
+    country: string;
     city: string;
     user_has_avatar: number;
     area: number;
@@ -175,10 +182,125 @@ export function getLeaderboardFromDatabase(database: DatabaseSync, cityId?: stri
     initials: initials(row.display_name),
     color: row.color,
     pattern: row.pattern,
+    countryCode: row.country_code,
+    cityId: row.city_id,
+    country: row.country,
     city: row.city,
     avatarData: row.user_has_avatar ? `/api/users/${encodeURIComponent(row.id)}/avatar` : null,
     areaKm2: row.area,
     routes: row.routes,
     rank: index + 1,
   }));
+}
+
+type ScopedLeaderboardRow = {
+  id: string;
+  username: string;
+  display_name: string;
+  color: string;
+  pattern: number;
+  country_code: string;
+  city_id: string;
+  country: string;
+  city: string;
+  user_has_avatar: number;
+  area: number;
+  routes: number;
+  created_at: string;
+};
+
+function scopedLeaderboardFilters(query: ScopedLeaderboardQuery) {
+  const cities = query.cities ?? [];
+  const countries = query.countryCodes ?? [];
+  if (cities.length > LEADERBOARD_LIMIT || countries.length > LEADERBOARD_LIMIT) {
+    throw new RangeError(`Sıralama konum seçimi en fazla ${LEADERBOARD_LIMIT} değer içerebilir.`);
+  }
+  const cityKeys = new Set(cities.map((selection) => {
+    const countryCode = selection.countryCode.trim().toUpperCase();
+    const city = selection.city.trim();
+    if (!/^[A-Z]{2}$/.test(countryCode) || !city || city.length > 120) {
+      throw new RangeError("Geçersiz sıralama şehir seçimi.");
+    }
+    return leaderboardCityKey(countryCode, city);
+  }));
+  const countryCodes = new Set(countries.map((value) => {
+    const countryCode = value.trim().toUpperCase();
+    if (!/^[A-Z]{2}$/.test(countryCode)) throw new RangeError("Geçersiz sıralama ülke seçimi.");
+    return countryCode;
+  }));
+  return { cityKeys, countryCodes };
+}
+
+/**
+ * Builds an authoritative scope before sorting and limiting. SQLite is the
+ * local adapter, so reading the compact candidate set in-process also lets us
+ * bridge legacy/canonical city ids without relying on SQLite's ASCII collation.
+ */
+export function getScopedLeaderboardFromDatabase(
+  database: DatabaseSync,
+  query: ScopedLeaderboardQuery,
+): LeaderboardEntry[] {
+  const limit = query.limit ?? LEADERBOARD_LIMIT;
+  assertLimit(limit, LEADERBOARD_LIMIT, "Sıralama limiti");
+  const { cityKeys, countryCodes } = scopedLeaderboardFilters(query);
+  if (query.scope === "city" && !cityKeys.size) return [];
+  if (query.scope === "country" && !countryCodes.size) return [];
+
+  const viewerId = query.viewerId?.trim() ?? "";
+  if (query.scope === "friends" && !viewerId) return [];
+  const friendIds = query.scope === "friends"
+    ? new Set<string>([
+      viewerId,
+      ...(database.prepare("SELECT followed_id FROM follows WHERE follower_id = ? ORDER BY followed_id ASC")
+        .all(viewerId) as Array<{ followed_id: string }>).map((row) => row.followed_id),
+    ])
+    : null;
+
+  const rows = database.prepare(`
+    SELECT
+      users.id,
+      users.username,
+      users.display_name,
+      users.color,
+      users.pattern,
+      users.country_code,
+      users.city_id,
+      users.country,
+      users.city,
+      users.created_at,
+      (users.avatar_data IS NOT NULL) AS user_has_avatar,
+      COALESCE(current_territories.area_m2 / 1000000.0, 0) AS area,
+      (SELECT COUNT(*) FROM territories WHERE territories.user_id = users.id) AS routes
+    FROM users
+    LEFT JOIN current_territories ON current_territories.user_id = users.id
+  `).all() as ScopedLeaderboardRow[];
+
+  return rows
+    .filter((row) => {
+      if (query.scope === "friends") return friendIds!.has(row.id);
+      if (query.scope === "city") return cityKeys.has(leaderboardCityKey(row.country_code, row.city));
+      if (query.scope === "country") return countryCodes.has(row.country_code.trim().toUpperCase());
+      return true;
+    })
+    .sort((left, right) => right.area - left.area
+      || right.routes - left.routes
+      || left.created_at.localeCompare(right.created_at)
+      || left.id.localeCompare(right.id))
+    .slice(0, limit)
+    .map((row, index) => ({
+      id: row.id,
+      username: row.username,
+      displayName: row.display_name,
+      initials: initials(row.display_name),
+      color: row.color,
+      pattern: row.pattern,
+      countryCode: row.country_code,
+      cityId: row.city_id,
+      country: row.country,
+      city: row.city,
+      avatarData: row.user_has_avatar ? `/api/users/${encodeURIComponent(row.id)}/avatar` : null,
+      areaKm2: row.area,
+      routes: row.routes,
+      rank: index + 1,
+    }));
 }

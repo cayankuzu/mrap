@@ -243,7 +243,15 @@ test("kayıttan paylaşıma gerçek mobil SQLite yolculuğu tamamlanır ve hesap
     await expectNoHorizontalOverflow(page, "gerçek profil paylaşım doğrulaması");
 
     await openRoute(page, "/leaderboard", "Sıralama");
-    const ownRank = page.locator(".real-rank-list article.is-you");
+    const realScopes = page.getByRole("group", { name: "Sıralama kapsamı" }).getByRole("button");
+    await expect(realScopes).toHaveCount(4);
+    await expect(realScopes).toHaveText(["Arkadaşlar", "Şehir", "Ülke", "Dünya"]);
+    await expect(realScopes.locator('[aria-pressed="true"]')).toHaveCount(1);
+    await expect(page.getByRole("searchbox", { name: "Sıralamada ara" })).toBeVisible();
+    await expect(page.locator(".leaderboard-multiselect")).toHaveCount(1);
+    await expect(page.getByText("Mahalle", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("Dönem", { exact: true })).toHaveCount(0);
+    const ownRank = page.locator(".podium-place.is-you, .real-rank-list article.is-you");
     await expect(ownRank).toContainText(identity.username);
     await expect(ownRank).toContainText("1 alan kapatma");
     await expectNoHorizontalOverflow(page, "gerçek sıralama doğrulaması");

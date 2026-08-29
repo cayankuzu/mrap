@@ -190,25 +190,3 @@ export const discoverPosts: Post[] = [
     photo: "sunset",
   },
 ];
-
-export type RankEntry = {
-  rank: number;
-  name: string;
-  handle: string;
-  initials: string;
-  color: string;
-  area: number;
-  change: number;
-  city: string;
-};
-
-export const rankings: RankEntry[] = [
-  { rank: 1, name: "Mert Aksoy", handle: "mertx", initials: "MA", color: "#ff8066", area: 48.7, change: 2, city: "Kadıköy" },
-  { rank: 2, name: "Ece Güner", handle: "ecewrap", initials: "EG", color: "#8f7cff", area: 44.2, change: 0, city: "Beşiktaş" },
-  { rank: 3, name: "Kerem Can", handle: "keremruns", initials: "KC", color: "#f3b83f", area: 39.8, change: 1, city: "Şişli" },
-  { rank: 4, name: "Defne Kaya", handle: "defnek", initials: "DK", color: "#48c9a5", area: 36.4, change: -1, city: "Kadıköy" },
-  { rank: 5, name: "Alp Duran", handle: "alpd", initials: "AD", color: "#4f8cff", area: 31.9, change: 3, city: "Üsküdar" },
-  { rank: 6, name: "Zeynep Su", handle: "zeyneps", initials: "ZS", color: "#e864a9", area: 28.6, change: 1, city: "Beyoğlu" },
-  { rank: 7, name: "Can Yalın", handle: "cyalin", initials: "CY", color: "#6acb74", area: 25.1, change: -2, city: "Ataşehir" },
-  { rank: 8, name: "Deniz Aras", handle: "denizaras", initials: "DA", color: "#ff9f43", area: 22.8, change: 0, city: "Bakırköy" },
-];

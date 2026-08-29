@@ -5,6 +5,7 @@ import type { MultiPolygon, Polygon } from "geojson";
 import { CONNECTION_PAGE_LIMITS, CONTENT_LIMITS, LEADERBOARD_LIMIT, MEDIA_LIMITS, PLAYER_SEARCH_LIMITS, POST_PAGE_LIMITS } from "@/lib/content-limits";
 import { encodeCommentCursor } from "@/lib/comment-cursor";
 import { encodeConnectionCursor } from "@/lib/connection-cursor";
+import { leaderboardCityKey } from "@/lib/leaderboard-filter";
 import { normalizeMapCamera, type MapCameraState } from "@/lib/map-preview";
 import type {
   AddPostCommentResult,
@@ -23,6 +24,7 @@ import type {
   PublicPlayer,
   RealPost,
   RouteSession,
+  ScopedLeaderboardQuery,
   SocialConnection,
   StoredTerritory,
   TerritoryClaimResult,
@@ -1598,6 +1600,218 @@ export async function getUserStats(userId: string) {
   };
 }
 
+function normalizedScopedLeaderboardSelection(query: ScopedLeaderboardQuery) {
+  const limit = query.limit ?? LEADERBOARD_LIMIT;
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > LEADERBOARD_LIMIT) {
+    throw new RangeError(`Sıralama limiti 1–${LEADERBOARD_LIMIT} arasında olmalı.`);
+  }
+  const cities = query.cities ?? [];
+  const countries = query.countryCodes ?? [];
+  if (cities.length > LEADERBOARD_LIMIT || countries.length > LEADERBOARD_LIMIT) {
+    throw new RangeError(`Sıralama konum seçimi en fazla ${LEADERBOARD_LIMIT} değer içerebilir.`);
+  }
+  const cityKeys = new Set<string>();
+  const cityCountryCodes = new Set<string>();
+  for (const selection of cities) {
+    const countryCode = selection.countryCode.trim().toUpperCase();
+    const city = selection.city.trim();
+    if (!/^[A-Z]{2}$/.test(countryCode) || !city || city.length > 120) {
+      throw new RangeError("Geçersiz sıralama şehir seçimi.");
+    }
+    cityCountryCodes.add(countryCode);
+    cityKeys.add(leaderboardCityKey(countryCode, city));
+  }
+  const countryCodes = new Set<string>();
+  for (const value of countries) {
+    const countryCode = value.trim().toUpperCase();
+    if (!/^[A-Z]{2}$/.test(countryCode)) throw new RangeError("Geçersiz sıralama ülke seçimi.");
+    countryCodes.add(countryCode);
+  }
+  return { limit, cityKeys, cityCountryCodes, countryCodes };
+}
+
+type LeaderboardProfileRef = { id: string; created_at: string };
+type LeaderboardScoreRow = { user_id: string; current_territory_area_m2: number | string; claim_count: number };
+
+function byLeaderboardScore(left: LeaderboardScoreRow, right: LeaderboardScoreRow) {
+  return numeric(right.current_territory_area_m2) - numeric(left.current_territory_area_m2)
+    || Number(right.claim_count ?? 0) - Number(left.claim_count ?? 0)
+    || String(left.user_id).localeCompare(String(right.user_id));
+}
+
+function rankedScore(score: LeaderboardScoreRow) {
+  return numeric(score.current_territory_area_m2) > 0 || Number(score.claim_count ?? 0) > 0;
+}
+
+async function selectedLeaderboardCityIds(
+  cityKeys: ReadonlySet<string>,
+  countryCodes: ReadonlySet<string>,
+) {
+  const admin = createMrapSupabaseAdminClient();
+  const ids = new Set<string>();
+  for (let from = 0; ; from += SUPABASE_PAGE_SIZE) {
+    const page = await admin.from("cities").select("id,country_code,name_tr")
+      .in("country_code", [...countryCodes])
+      .order("id", { ascending: true })
+      .range(from, from + SUPABASE_PAGE_SIZE - 1);
+    assertNoError(page.error, "Sıralama şehir kataloğu okuma");
+    for (const row of page.data ?? []) {
+      if (cityKeys.has(leaderboardCityKey(String(row.country_code), String(row.name_tr)))) ids.add(String(row.id));
+    }
+    if ((page.data ?? []).length < SUPABASE_PAGE_SIZE) break;
+  }
+  return [...ids];
+}
+
+async function profileRefsForValues(column: "id" | "city_id", values: readonly string[]) {
+  if (!values.length) return [];
+  const admin = createMrapSupabaseAdminClient();
+  const refs: LeaderboardProfileRef[] = [];
+  for (let index = 0; index < values.length; index += SUPABASE_IN_FILTER_CHUNK) {
+    const chunk = values.slice(index, index + SUPABASE_IN_FILTER_CHUNK);
+    for (let from = 0; ; from += SUPABASE_PAGE_SIZE) {
+      const page = await admin.from("profiles").select("id,created_at")
+        .in(column, chunk)
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, from + SUPABASE_PAGE_SIZE - 1);
+      assertNoError(page.error, "Sıralama profilleri okuma");
+      refs.push(...(page.data ?? []).map((row) => ({ id: String(row.id), created_at: String(row.created_at) })));
+      if ((page.data ?? []).length < SUPABASE_PAGE_SIZE) break;
+    }
+  }
+  return refs.sort((left, right) => left.created_at.localeCompare(right.created_at) || left.id.localeCompare(right.id));
+}
+
+async function scopedLeaderboardProfileRefs(
+  query: ScopedLeaderboardQuery,
+  normalized: ReturnType<typeof normalizedScopedLeaderboardSelection>,
+  friendIds: ReadonlySet<string>,
+) {
+  if (query.scope === "friends") return profileRefsForValues("id", [...friendIds]);
+  if (query.scope === "city") {
+    const cityIds = await selectedLeaderboardCityIds(normalized.cityKeys, normalized.cityCountryCodes);
+    return profileRefsForValues("city_id", cityIds);
+  }
+  if (query.scope === "country") {
+    const admin = createMrapSupabaseAdminClient();
+    const refs: LeaderboardProfileRef[] = [];
+    for (let from = 0; ; from += SUPABASE_PAGE_SIZE) {
+      const page = await admin.from("profiles").select("id,created_at")
+        .in("country_code", [...normalized.countryCodes])
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, from + SUPABASE_PAGE_SIZE - 1);
+      assertNoError(page.error, "Ülke sıralaması profilleri okuma");
+      refs.push(...(page.data ?? []).map((row) => ({ id: String(row.id), created_at: String(row.created_at) })));
+      if ((page.data ?? []).length < SUPABASE_PAGE_SIZE) break;
+    }
+    return refs;
+  }
+  return [];
+}
+
+async function rankedScoresForUsers(worldId: string, userIds: readonly string[]) {
+  const admin = createMrapSupabaseAdminClient();
+  const scores: LeaderboardScoreRow[] = [];
+  for (let index = 0; index < userIds.length; index += SUPABASE_IN_FILTER_CHUNK) {
+    const result = await admin.from("player_scores")
+      .select("user_id,current_territory_area_m2,claim_count")
+      .eq("world_id", worldId)
+      .in("user_id", userIds.slice(index, index + SUPABASE_IN_FILTER_CHUNK));
+    assertNoError(result.error, "Sıralama puanları okuma");
+    scores.push(...((result.data ?? []) as LeaderboardScoreRow[]).filter(rankedScore));
+  }
+  return scores.sort(byLeaderboardScore);
+}
+
+async function topWorldRankedScores(worldId: string, limit: number) {
+  const admin = createMrapSupabaseAdminClient();
+  const result = await admin.from("player_scores")
+    .select("user_id,current_territory_area_m2,claim_count")
+    .eq("world_id", worldId)
+    .or("current_territory_area_m2.gt.0,claim_count.gt.0")
+    .order("current_territory_area_m2", { ascending: false })
+    .order("claim_count", { ascending: false })
+    .order("user_id", { ascending: true })
+    .limit(limit);
+  assertNoError(result.error, "Dünya sıralaması puanları okuma");
+  return ((result.data ?? []) as LeaderboardScoreRow[]).filter(rankedScore).sort(byLeaderboardScore).slice(0, limit);
+}
+
+async function zeroScoreProfileRefs(excludedIds: ReadonlySet<string>, limit: number) {
+  if (limit <= 0) return [];
+  const admin = createMrapSupabaseAdminClient();
+  const refs: LeaderboardProfileRef[] = [];
+  for (let from = 0; refs.length < limit; from += SUPABASE_PAGE_SIZE) {
+    const page = await admin.from("profiles").select("id,created_at")
+      .order("created_at", { ascending: true })
+      .order("id", { ascending: true })
+      .range(from, from + SUPABASE_PAGE_SIZE - 1);
+    assertNoError(page.error, "Sıfır puanlı sıralama profilleri okuma");
+    for (const row of page.data ?? []) {
+      const id = String(row.id);
+      if (!excludedIds.has(id)) refs.push({ id, created_at: String(row.created_at) });
+      if (refs.length >= limit) break;
+    }
+    if ((page.data ?? []).length < SUPABASE_PAGE_SIZE) break;
+  }
+  return refs;
+}
+
+/**
+ * Server-side scope authority used by both the production and local adapters.
+ * Profiles without a score row are intentionally retained with a zero score.
+ */
+export async function getScopedLeaderboard(query: ScopedLeaderboardQuery): Promise<LeaderboardEntry[]> {
+  const normalized = normalizedScopedLeaderboardSelection(query);
+  if (query.scope === "city" && !normalized.cityKeys.size) return [];
+  if (query.scope === "country" && !normalized.countryCodes.size) return [];
+
+  const viewerId = query.viewerId?.trim() ?? "";
+  if (query.scope === "friends" && !viewerId) return [];
+  const friendIds = query.scope === "friends"
+    ? new Set([viewerId, ...await followedIds(viewerId)])
+    : new Set<string>();
+  const world = await productionWorld();
+  const profileRefs = query.scope === "world"
+    ? []
+    : await scopedLeaderboardProfileRefs(query, normalized, friendIds);
+  const rankedScores = query.scope === "world"
+    ? await topWorldRankedScores(world.id, normalized.limit)
+    : (await rankedScoresForUsers(world.id, profileRefs.map((profile) => profile.id))).slice(0, normalized.limit);
+  const rankedIds = new Set(rankedScores.map((score) => String(score.user_id)));
+  const remaining = normalized.limit - rankedScores.length;
+  const zeroRefs = query.scope === "world"
+    ? await zeroScoreProfileRefs(rankedIds, remaining)
+    : profileRefs.filter((profile) => !rankedIds.has(profile.id)).slice(0, remaining);
+  const selectedIds = [...rankedScores.map((score) => String(score.user_id)), ...zeroRefs.map((profile) => profile.id)];
+  const profiles = await hydratePublicRows(selectedIds);
+  const scores = new Map(rankedScores.map((score) => [String(score.user_id), score]));
+
+  return selectedIds.flatMap((id) => {
+    const user = profiles.get(id);
+    if (!user) return [];
+    const score = scores.get(id);
+    return [{
+      id: user.id,
+      username: user.username,
+      displayName: user.display_name,
+      initials: initials(user.display_name),
+      color: user.color,
+      pattern: user.pattern,
+      countryCode: user.country_code,
+      cityId: user.city_id,
+      country: user.country,
+      city: user.city,
+      avatarData: userMediaReference(user.id, "avatar", Boolean(user.avatar_object_key)),
+      areaKm2: numeric(score?.current_territory_area_m2) / 1_000_000,
+      routes: Number(score?.claim_count ?? 0),
+      rank: 0,
+    }];
+  }).map((entry, index) => ({ ...entry, rank: index + 1 }));
+}
+
 async function leaderboardRows(cityId?: string): Promise<LeaderboardEntry[]> {
   const admin = createMrapSupabaseAdminClient();
   const world = await productionWorld();
@@ -1637,6 +1851,9 @@ async function leaderboardRows(cityId?: string): Promise<LeaderboardEntry[]> {
       initials: initials(user.display_name),
       color: user.color,
       pattern: user.pattern,
+      countryCode: user.country_code,
+      cityId: user.city_id,
+      country: user.country,
       city: user.city,
       avatarData: userMediaReference(user.id, "avatar", Boolean(user.avatar_object_key)),
       areaKm2: numeric(score.current_territory_area_m2) / 1_000_000,

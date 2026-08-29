@@ -186,9 +186,33 @@ export type LeaderboardEntry = {
   initials: string;
   color: string;
   pattern: number;
+  countryCode: string;
+  cityId: string;
+  country: string;
   city: string;
   avatarData: string | null;
   areaKm2: number;
   routes: number;
   rank: number;
+};
+
+export type LeaderboardDataScope = "friends" | "city" | "country" | "world";
+
+/**
+ * City selection deliberately excludes provider-specific city ids. Legacy and
+ * canonical catalog ids can identify the same physical city, while the ISO
+ * country code + normalized city label remains stable across that migration.
+ */
+export type LeaderboardCitySelection = {
+  countryCode: string;
+  city: string;
+};
+
+export type ScopedLeaderboardQuery = {
+  scope: LeaderboardDataScope;
+  /** Friends contains the viewer and accounts followed by the viewer. */
+  viewerId?: string;
+  cities?: readonly LeaderboardCitySelection[];
+  countryCodes?: readonly string[];
+  limit?: number;
 };

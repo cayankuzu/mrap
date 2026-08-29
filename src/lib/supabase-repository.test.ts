@@ -15,6 +15,7 @@ vi.mock("@/server/http/media-validation", async (importOriginal) => {
 });
 
 import {
+  getScopedLeaderboard,
   getRouteSessionTotals,
   listPostPage,
   resolveFollowRequest,
@@ -159,6 +160,105 @@ describe("Supabase repository production sözleşmeleri", () => {
       sessionCount: 1_001,
     });
     expect(double.queryLog.filter((entry) => entry.table === "route_sessions")).toHaveLength(2);
+  });
+
+  it("kapsamlı şehir sıralamasında canonical/legacy kimlikleri birleştirir ve eksik score'u sıfır kabul eder", async () => {
+    const profiles = [
+      { ...profile, id: "00000000-0000-4000-8000-000000000011", username: "legacy", city_id: "tr-istanbul", created_at: "2026-01-01T00:00:00.000Z" },
+      { ...profile, id: "00000000-0000-4000-8000-000000000012", username: "canonical", city_id: "csc:TR:34:153786", created_at: "2026-01-02T00:00:00.000Z" },
+      { ...profile, id: "00000000-0000-4000-8000-000000000013", username: "berlin", country_code: "DE", city_id: "de-berlin", created_at: "2026-01-03T00:00:00.000Z" },
+    ];
+    const double = adminDouble((table, operations) => {
+      if (table === "profiles") {
+        const select = String(operation(operations, "select")?.args[0] ?? "");
+        const inFilter = operation(operations, "in")?.args;
+        const filtered = inFilter
+          ? profiles.filter((row) => (inFilter[1] as string[]).includes(String(row[inFilter[0] as "id" | "city_id" | "country_code"])))
+          : profiles;
+        return select === "id,created_at"
+          ? { data: filtered.map(({ id, created_at }) => ({ id, created_at })), error: null }
+          : { data: filtered, error: null };
+      }
+      if (table === "cities") return { data: [
+        { id: "tr-istanbul", country_code: "TR", name_tr: "İstanbul" },
+        { id: "csc:TR:34:153786", country_code: "TR", name_tr: "İstanbul" },
+        { id: "de-berlin", country_code: "DE", name_tr: "Berlin" },
+      ], error: null };
+      if (table === "countries") return { data: [
+        { code: "TR", name_tr: "Türkiye" },
+        { code: "DE", name_tr: "Almanya" },
+      ], error: null };
+      if (table === "worlds") return { data: { id: "world-main", current_version: 1 }, error: null };
+      if (table === "player_scores") return { data: [{
+        user_id: profiles[1].id,
+        current_territory_area_m2: 1_500_000,
+        claim_count: 2,
+      }], error: null };
+      return { data: [], error: null };
+    });
+    mocks.createAdmin.mockReturnValue(double.admin);
+
+    const result = await getScopedLeaderboard({
+      scope: "city",
+      cities: [{ countryCode: "tr", city: "ISTANBUL" }],
+      limit: 10,
+    });
+
+    expect(result.map((entry) => [entry.username, entry.areaKm2, entry.rank])).toEqual([
+      ["canonical", 1.5, 1],
+      ["legacy", 0, 2],
+    ]);
+    expect(result.map((entry) => entry.cityId)).toEqual(["csc:TR:34:153786", "tr-istanbul"]);
+    const hydration = double.queryLog.find((entry) => entry.table === "profiles"
+      && String(operation(entry.operations, "select")?.args[0] ?? "").includes("username"));
+    expect(new Set(operation(hydration!.operations, "in")?.args[1] as string[])).toEqual(new Set([
+      profiles[0].id,
+      profiles[1].id,
+    ]));
+  });
+
+  it("dünya sıralamasında önce score limitini uygular ve yalnız kalan slot kadar sıfır profili hydrate eder", async () => {
+    const profiles = [
+      { ...profile, id: "00000000-0000-4000-8000-000000000021", username: "zero-old", created_at: "2026-01-01T00:00:00.000Z" },
+      { ...profile, id: "00000000-0000-4000-8000-000000000022", username: "leader", created_at: "2026-01-02T00:00:00.000Z" },
+      { ...profile, id: "00000000-0000-4000-8000-000000000023", username: "zero-new", created_at: "2026-01-03T00:00:00.000Z" },
+    ];
+    const double = adminDouble((table, operations) => {
+      if (table === "profiles") {
+        const select = String(operation(operations, "select")?.args[0] ?? "");
+        const ids = operation(operations, "in")?.args[1] as string[] | undefined;
+        const filtered = ids ? profiles.filter((row) => ids.includes(row.id)) : profiles;
+        return select === "id,created_at"
+          ? { data: filtered.map(({ id, created_at }) => ({ id, created_at })), error: null }
+          : { data: filtered, error: null };
+      }
+      if (table === "cities") return { data: [{ id: "istanbul", name_tr: "İstanbul" }], error: null };
+      if (table === "countries") return { data: [{ code: "TR", name_tr: "Türkiye" }], error: null };
+      if (table === "worlds") return { data: { id: "world-main", current_version: 1 }, error: null };
+      if (table === "player_scores") return { data: [{
+        user_id: profiles[1].id,
+        current_territory_area_m2: 2_000_000,
+        claim_count: 1,
+      }], error: null };
+      return { data: [], error: null };
+    });
+    mocks.createAdmin.mockReturnValue(double.admin);
+
+    const result = await getScopedLeaderboard({ scope: "world", limit: 2 });
+
+    expect(result.map((entry) => [entry.username, entry.areaKm2])).toEqual([
+      ["leader", 2],
+      ["zero-old", 0],
+    ]);
+    const scoreQuery = double.queryLog.find((entry) => entry.table === "player_scores")!;
+    expect(operation(scoreQuery.operations, "limit")?.args[0]).toBe(2);
+    expect(operation(scoreQuery.operations, "in")).toBeUndefined();
+    const hydration = double.queryLog.find((entry) => entry.table === "profiles"
+      && String(operation(entry.operations, "select")?.args[0] ?? "").includes("username"))!;
+    expect(new Set(operation(hydration.operations, "in")?.args[1] as string[])).toEqual(new Set([
+      profiles[0].id,
+      profiles[1].id,
+    ]));
   });
 
   it("takip akışını tüm takip sayfalarından kurar ve cursor toplamını azaltmaz", async () => {

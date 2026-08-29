@@ -1871,10 +1871,6 @@ export function GameMap({ user, mapState: initialMapState, demo = false }: { use
         </div>
       ) : <div className="map-loading" role="status"><span /><strong>{copy.game.mapPreparing}</strong><small>{copy.game.mapLayersLoading}</small></div> : null}
 
-      <div className="map-topbar">
-        <div className="map-location-title"><span className="map-status-dot" /><div><strong>{user.city}</strong><small>{formatMessage(copy.game.currentTerritories, { count: territoryState.territories.length })}</small></div></div>
-      </div>
-
       <div className="map-controls map-controls--location"><button type="button" onClick={() => { if (locationMode === "real") void enableDeviceHeading(true); mapRef.current?.easeTo({ center: positionRef.current, zoom: 16 }); }} aria-label={copy.game.returnToLocation}><Crosshair size={19} /></button></div>
 
       {(demo || GAME_CONFIG.developerControls) && developerOpen ? (

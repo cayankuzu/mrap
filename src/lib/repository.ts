@@ -100,6 +100,7 @@ export const getConnectionListAccess = repositoryFunction("getConnectionListAcce
 export const listConnectionPage = repositoryFunction("listConnectionPage");
 export const getUserStats = repositoryFunction("getUserStats");
 export const getLeaderboard = repositoryFunction("getLeaderboard");
+export const getScopedLeaderboard = repositoryFunction("getScopedLeaderboard");
 export const getLeaderboardRank = repositoryFunction("getLeaderboardRank");
 export const listNotifications = repositoryFunction("listNotifications");
 export const markNotificationsRead = repositoryFunction("markNotificationsRead");

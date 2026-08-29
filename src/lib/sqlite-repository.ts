@@ -7,7 +7,7 @@ import { CONNECTION_PAGE_LIMITS, CONTENT_LIMITS, MEDIA_LIMITS, POST_PAGE_LIMITS 
 import { findActivePasswordResetUserId, findActiveSessionUserId, removeExpiredSessions, removeUnavailablePasswordResetTokens } from "@/lib/auth-expiry-store";
 import { database } from "@/lib/database";
 import { normalizeMapCamera, type MapCameraState } from "@/lib/map-preview";
-import type { AppUser, ConnectionCursor, CurrentTerritory, PlayerSearchResult, PostCursor, PostableTerritory, PublicPlayer, StoredTerritory, TerritoryClaimResult, TerritoryMapState, TerritoryPaint, UserListPlayer } from "@/lib/models";
+import type { AppUser, ConnectionCursor, CurrentTerritory, PlayerSearchResult, PostCursor, PostableTerritory, PublicPlayer, ScopedLeaderboardQuery, StoredTerritory, TerritoryClaimResult, TerritoryMapState, TerritoryPaint, UserListPlayer } from "@/lib/models";
 import { updateNotificationActorUsername } from "@/lib/notification-identity-store";
 import { insertPostInteractionNotification, listNotificationsFromDatabase } from "@/lib/notification-store";
 import { getRouteSessionTotalsFromDatabase, listRouteSessionsFromDatabase, recordRouteSessionInDatabase, type RecordRouteSessionInput } from "@/lib/route-session-store";
@@ -21,7 +21,7 @@ import { deleteAccountFromDatabase } from "@/lib/account-deletion-store";
 import { addPostCommentToDatabase, listPostCommentsFromDatabase } from "@/lib/post-comment-store";
 import type { PostCommentCursor } from "@/lib/models";
 import { getPostFromDatabase, getPostImageDataFromDatabase, listPostPageFromDatabase, type PostFeedMode } from "@/lib/post-feed-store";
-import { getLeaderboardFromDatabase, listConnectionPageFromDatabase, searchPlayersFromDatabase } from "@/lib/social-discovery-store";
+import { getLeaderboardFromDatabase, getScopedLeaderboardFromDatabase, listConnectionPageFromDatabase, searchPlayersFromDatabase } from "@/lib/social-discovery-store";
 import { buildUserSearchKey } from "@/lib/user-search";
 import { createMutationPayloadHash, findPostIdempotencyReplay, IDEMPOTENCY_KEY_PATTERN } from "@/lib/mutation-idempotency-store";
 import { listPostLikeActorsFromDatabase } from "@/lib/post-like-store";
@@ -765,6 +765,10 @@ export function getUserStats(userId: string) {
 
 export function getLeaderboard(cityId?: string) {
   return getLeaderboardFromDatabase(database, cityId);
+}
+
+export function getScopedLeaderboard(query: ScopedLeaderboardQuery) {
+  return getScopedLeaderboardFromDatabase(database, query);
 }
 
 export function getLeaderboardRank(userId: string, cityId?: string) {

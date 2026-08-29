@@ -12,6 +12,7 @@ const criticalRoutes = [
   ["/demo/home", "Akışın"],
   ["/demo/explore", "Keşfet"],
   ["/demo/play", /Stratejik rotanı başlat/],
+  ["/demo/leaderboard", "Sıralama"],
   ["/demo/profile", /.+/],
 ] as const;
 
@@ -42,6 +43,15 @@ test.describe("WCAG 2.2 AA kritik/serious kapısı", () => {
       await health.assertClean();
     });
   }
+
+  test("sıralama çoklu konum paneli erişilebilirlik kapısını geçer", async ({ page }) => {
+    const health = watchBrowserFailures(page);
+    await openRoute(page, "/demo/leaderboard", "Sıralama");
+    await page.locator(".leaderboard-multiselect summary").click();
+    await expect(page.locator(".leaderboard-multiselect-panel")).toBeVisible();
+    await expectNoSeriousAxeViolations(page, "sıralama çoklu konum paneli");
+    await health.assertClean();
+  });
 
   test("yorum paneli erişilebilirlik kapısını geçer", async ({ page }) => {
     const health = watchBrowserFailures(page);
