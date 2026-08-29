@@ -6,6 +6,7 @@ import bbox from "@turf/bbox";
 import { feature } from "@turf/helpers";
 import { Maximize2 } from "lucide-react";
 import { Map as MapLibreMap, setWorkerUrl } from "maplibre-gl";
+import "maplibre-gl/dist/maplibre-gl.css";
 import { MediaLightbox } from "@/components/MediaLightbox";
 import { createDemoGeometry, MAP_LOAD_TIMEOUT_MS, MRAP_MAPLIBRE_LOCALE, OPEN_FREE_MAP_STYLE, type MapCameraState, type PreviewTerritory } from "@/lib/map-preview";
 
@@ -18,6 +19,7 @@ type TerritoryInteractiveMapProps = {
   ownerUsername: string;
   mapView?: MapCameraState | null;
   compact?: boolean;
+  initiallyEnlarged?: boolean;
 };
 
 function boundaryCollection(geometry: Polygon | MultiPolygon): FeatureCollection<LineString> {
@@ -145,13 +147,13 @@ function TerritoryMapCanvas({ territory, ownerUsername, mapView, expanded, onOpe
   );
 }
 
-export function TerritoryInteractiveMap({ territory, ownerUsername, mapView, compact = false }: TerritoryInteractiveMapProps) {
+export function TerritoryInteractiveMap({ territory, ownerUsername, mapView, compact = false, initiallyEnlarged = false }: TerritoryInteractiveMapProps) {
   const previewRef = useRef<HTMLDivElement>(null);
   const previewPointerStartRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
   const activePreviewPointersRef = useRef(new Set<number>());
   const previewOpenBlockedUntilRef = useRef(0);
   const [inView, setInView] = useState(false);
-  const [enlarged, setEnlarged] = useState(false);
+  const [enlarged, setEnlarged] = useState(initiallyEnlarged);
   const openMap = useCallback(() => setEnlarged(true), []);
   const openMapFromPreview = useCallback(() => {
     if (Date.now() >= previewOpenBlockedUntilRef.current) openMap();

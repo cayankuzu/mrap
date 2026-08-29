@@ -3,9 +3,9 @@
 import { Camera, MapPin, Route, Trophy } from "lucide-react";
 import { DemoProfileTabs } from "@/components/DemoProfileTabs";
 import { ProfileActions } from "@/components/ProfileActions";
+import { ProfileAvatarMedia, ProfileCoverMedia } from "@/components/ProfileMedia";
 import { useDemoProfile } from "@/components/DemoProfileProvider";
 import { SocialConnections } from "@/components/SocialConnections";
-import { UserAvatar } from "@/components/UserAvatar";
 import { discoverPosts, followingPosts } from "@/lib/data";
 import { DEMO_FOLLOWERS, DEMO_FOLLOWING } from "@/lib/demo-profile";
 
@@ -13,9 +13,9 @@ export default function DemoProfilePage() {
   const { user } = useDemoProfile();
   return <div className="content-page profile-page">
     <section className="profile-hero">
-      <div className="profile-cover real-profile-cover" style={user.coverData ? { backgroundImage: `url(${user.coverData})` } : undefined}><div className={`profile-pattern pattern-${user.pattern}`} style={{ "--profile-color": user.color } as React.CSSProperties}><span>@{user.username} · @{user.username} · @{user.username}</span></div></div>
+      <ProfileCoverMedia user={user} />
       <ProfileActions settingsHref="/demo/settings" demo />
-      <div className="profile-identity"><UserAvatar user={user} size="xl" /><div><h1>{user.displayName}</h1><span>@{user.username} · <MapPin size={14} /> {user.city}, {user.country}</span><p>{user.bio || "Henüz bir biyografi eklemedin."}</p></div></div>
+      <div className="profile-identity"><ProfileAvatarMedia user={user} /><div><h1>{user.displayName}</h1><span>@{user.username} · <MapPin size={14} /> {user.city}, {user.country}</span><p>{user.bio || "Henüz bir biyografi eklemedin."}</p></div></div>
       <div className="profile-social"><SocialConnections followers={DEMO_FOLLOWERS} following={DEMO_FOLLOWING} profileHrefPrefix="/demo/users" /><span className="profile-joined">Demo profilin bu tarayıcıda saklanır</span></div>
     </section>
     <section className="profile-stats-grid">

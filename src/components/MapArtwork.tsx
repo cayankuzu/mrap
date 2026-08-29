@@ -1,7 +1,5 @@
-import type { Territory } from "@/lib/data";
-
 type MapArtworkProps = {
-  territory?: Territory;
+  territory?: { name: string; color: string; variant?: number };
   live?: boolean;
   className?: string;
 };
@@ -15,7 +13,9 @@ const territoryShapes: Record<1 | 2 | 3 | 4, string> = {
 
 export function MapArtwork({ territory, live = false, className = "" }: MapArtworkProps) {
   const color = territory?.color ?? "#bdf565";
-  const shape = territoryShapes[territory?.variant ?? 1];
+  const variant = territory?.variant;
+  const normalizedVariant: 1 | 2 | 3 | 4 = variant === 2 || variant === 3 || variant === 4 ? variant : 1;
+  const shape = territoryShapes[normalizedVariant];
 
   return (
     <svg

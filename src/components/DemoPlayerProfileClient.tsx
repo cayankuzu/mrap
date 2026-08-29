@@ -4,8 +4,8 @@ import { Camera, LockKeyhole, MapPin, Route, Trophy } from "lucide-react";
 import { DemoFollowButton } from "@/components/DemoFollowButton";
 import { useDemoProfile } from "@/components/DemoProfileProvider";
 import { PostCard } from "@/components/PostCard";
+import { ProfileAvatarMedia, ProfileCoverMedia } from "@/components/ProfileMedia";
 import { SocialConnections } from "@/components/SocialConnections";
-import { UserAvatar } from "@/components/UserAvatar";
 import { demoFollowRelation, type DemoFollowRelation } from "@/lib/demo-social-state";
 import type { DemoPlayer } from "@/lib/demo-profile";
 import type { Post } from "@/lib/data";
@@ -34,11 +34,9 @@ export function DemoPlayerProfileClient({
 
   return <div className="content-page player-profile-page profile-page">
     <section className="profile-hero player-profile-hero" style={{ "--profile-color": user.color } as React.CSSProperties}>
-      <div className="profile-cover real-profile-cover">
-        <div className={`profile-pattern pattern-${user.pattern}`}><span>@{user.username} · @{user.username} · @{user.username}</span></div>
-      </div>
+      <ProfileCoverMedia user={user} />
       <div className="profile-identity player-profile-identity">
-        <UserAvatar user={user} size="xl" />
+        <ProfileAvatarMedia user={user} />
         <div>
           <span className="eyebrow">{user.accountVisibility === "private" ? <><LockKeyhole size={12} /> Gizli hesap</> : "Herkese açık hesap"}</span>
           <h1>{user.displayName}</h1>

@@ -72,8 +72,22 @@ export function PullToRefresh({ refreshing, onRefresh }: { refreshing: boolean; 
 
   useEffect(() => {
     const mobile = window.matchMedia(MOBILE_QUERY);
+    let listeningForMove = false;
+
+    function stopListeningForMove() {
+      if (!listeningForMove) return;
+      document.removeEventListener("touchmove", move, true);
+      listeningForMove = false;
+    }
+
+    function listenForMove() {
+      if (listeningForMove) return;
+      document.addEventListener("touchmove", move, { passive: false, capture: true });
+      listeningForMove = true;
+    }
 
     function reset() {
+      stopListeningForMove();
       sessionRef.current = null;
       setPull({ distance: 0, progress: 0, ready: false, scope: "screen" });
     }
@@ -94,6 +108,9 @@ export function PullToRefresh({ refreshing, onRefresh }: { refreshing: boolean; 
         cancelled: false,
         ready: false,
       };
+      // Non-passive dinleyici yalnızca sayfanın tepesinde başlayan olası bir
+      // pull hareketi boyunca vardır; normal mobil kaydırma yolu bloklanmaz.
+      listenForMove();
     }
 
     function move(event: TouchEvent) {
@@ -101,6 +118,7 @@ export function PullToRefresh({ refreshing, onRefresh }: { refreshing: boolean; 
       if (!session || session.cancelled || event.touches.length !== 1) return;
       if (!isAtTop(session.scrollContainer, session.scope)) {
         session.cancelled = true;
+        stopListeningForMove();
         setPull({ distance: 0, progress: 0, ready: false, scope: session.scope });
         return;
       }
@@ -108,6 +126,7 @@ export function PullToRefresh({ refreshing, onRefresh }: { refreshing: boolean; 
       const gesture = evaluatePullGesture(touch.clientX - session.startX, touch.clientY - session.startY);
       if (gesture.phase === "cancelled") {
         session.cancelled = true;
+        stopListeningForMove();
         setPull({ distance: 0, progress: 0, ready: false, scope: session.scope });
         return;
       }
@@ -126,12 +145,11 @@ export function PullToRefresh({ refreshing, onRefresh }: { refreshing: boolean; 
     }
 
     document.addEventListener("touchstart", start, { passive: true, capture: true });
-    document.addEventListener("touchmove", move, { passive: false, capture: true });
     document.addEventListener("touchend", finish, { passive: true, capture: true });
     document.addEventListener("touchcancel", reset, { passive: true, capture: true });
     return () => {
       document.removeEventListener("touchstart", start, true);
-      document.removeEventListener("touchmove", move, true);
+      stopListeningForMove();
       document.removeEventListener("touchend", finish, true);
       document.removeEventListener("touchcancel", reset, true);
     };

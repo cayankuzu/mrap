@@ -4,6 +4,7 @@ import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypt
 import { createClient } from "@supabase/supabase-js";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { cache } from "react";
 import { createSessionRecord, deleteSessionRecord, findUserBySession, findUserRowById, toPublicUser } from "@/lib/repository";
 import { SESSION_COOKIE } from "@/lib/auth-config";
 import { normalizeProtectedReturnPath } from "@/lib/safe-navigation";
@@ -74,7 +75,7 @@ export async function destroySession() {
   cookieStore.delete(SESSION_COOKIE);
 }
 
-export async function getCurrentUser() {
+export const getCurrentUser = cache(async function getCurrentUser() {
   if (supabaseProviderEnabled()) {
     const client = await createMrapSupabaseServerClient();
     const { data, error } = await client.auth.getUser();
@@ -89,7 +90,7 @@ export async function getCurrentUser() {
   }
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
   return token ? await findUserBySession(hashToken(token)) : null;
-}
+});
 
 export async function requireCurrentUser() {
   const user = await getCurrentUser();

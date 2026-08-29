@@ -9,7 +9,7 @@ import { PhotoSelectionGrid } from "@/components/PhotoSelectionGrid";
 import { PostMediaCarousel } from "@/components/PostMediaCarousel";
 import { PostCommentsDialog, type PostCommentViewModel } from "@/components/PostCommentsDialog";
 import { PostLikesDialog, type LikeListUser } from "@/components/PostLikesDialog";
-import { TerritoryInteractiveMap } from "@/components/TerritoryInteractiveMap";
+import { DeferredTerritoryInteractiveMap } from "@/components/DeferredTerritoryInteractiveMap";
 import { UserAvatar } from "@/components/UserAvatar";
 import { optimizeImage } from "@/lib/client-image";
 import { readableTextColor } from "@/lib/app-config";
@@ -122,7 +122,7 @@ export function RealTerritoryCard({ territory, mapView, compact = false }: { ter
   const duration = territory.durationSeconds < 60 ? `${territory.durationSeconds} sn` : `${hours ? `${hours} sa ` : ""}${minutes} dk`;
   return (
     <div className={`real-territory-card${compact ? " is-compact" : ""}`} style={{ "--territory-color": territory.color } as React.CSSProperties}>
-      <TerritoryInteractiveMap territory={{ ...territory, geojson: territory.geojson, variant: territory.pattern }} ownerUsername={territory.ownerUsername} mapView={mapView} compact={compact} />
+      <DeferredTerritoryInteractiveMap territory={{ ...territory, geojson: territory.geojson, variant: territory.pattern }} ownerUsername={territory.ownerUsername} mapView={mapView} compact={compact} />
       <div className="snapshot-meta">
         <div><span className="snapshot-kicker"><Route size={14} /> {copy.feed.areaRecord}</span><strong>{territory.name}</strong><small className="snapshot-location"><MapPin size={12} /> {territory.district}</small></div>
         <div className="snapshot-stats"><span><small>{copy.feed.totalPath}</small>{territory.distanceKm.toFixed(2).replace(".", ",")} km</span><span><small>{copy.feed.closedArea}</small>{territory.areaKm2.toFixed(3).replace(".", ",")} km²</span><span><small>{copy.feed.newOwnership}</small>{territory.newlyAddedAreaKm2.toFixed(3).replace(".", ",")} km²</span></div>

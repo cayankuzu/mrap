@@ -22,7 +22,7 @@ import {
 import { AccountAvailabilityHint } from "@/components/AccountAvailabilityHint";
 import { ColorPalette } from "@/components/ColorPalette";
 import { LocationFields } from "@/components/LocationFields";
-import { UserAvatar } from "@/components/UserAvatar";
+import { ProfileAvatarMedia, ProfileCoverMedia } from "@/components/ProfileMedia";
 import { readableTextColor } from "@/lib/app-config";
 import { optimizeImage } from "@/lib/client-image";
 import { CONTENT_LIMITS } from "@/lib/content-limits";
@@ -252,7 +252,7 @@ export function SettingsClient({ initialUser, saveProfile, resolveUsernameAvaila
     }
   }
 
-  const previewUser = { ...user, username, displayName, color, avatarData };
+  const previewUser = { ...user, username, displayName, color, avatarData, coverData };
 
   return (
     <div className="settings-workspace">
@@ -293,10 +293,7 @@ export function SettingsClient({ initialUser, saveProfile, resolveUsernameAvaila
           <>
             <section className="settings-card settings-media-card">
               <header><span><Camera size={20} /></span><div><h2>{copy.settings.profileAppearance}</h2><p>{copy.settings.profileAppearanceHint}</p></div></header>
-              <div className="settings-cover-preview" style={coverData ? { backgroundImage: `url(${coverData})` } : undefined}>
-                <div className={`profile-pattern pattern-${user.pattern}`} style={{ "--profile-color": color } as React.CSSProperties}><span>@{username} · @{username}</span></div>
-                <UserAvatar user={previewUser} size="xl" />
-              </div>
+              <ProfileCoverMedia user={previewUser} variant="settings"><ProfileAvatarMedia user={previewUser} /></ProfileCoverMedia>
               <div className="settings-media-actions">
                 <label className="secondary-button"><ImagePlus size={17} /> Profil fotoğrafı<input className="visually-hidden" type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => readProfileImage(event, "avatar")} /></label>
                 <label className="secondary-button"><ImagePlus size={17} /> Kapak fotoğrafı<input className="visually-hidden" type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => readProfileImage(event, "cover")} /></label>

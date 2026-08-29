@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import { Camera, LockKeyhole, MapPin, Route, Trophy } from "lucide-react";
 import { notFound, redirect } from "next/navigation";
 import { FollowButton } from "@/components/FollowButton";
+import { ProfileAvatarMedia, ProfileCoverMedia } from "@/components/ProfileMedia";
 import { ProfilePostTabs } from "@/components/ProfilePostTabs";
 import { SocialConnections } from "@/components/SocialConnections";
-import { UserAvatar } from "@/components/UserAvatar";
 import { requireCurrentUser } from "@/lib/auth";
 import { toFeedPlayerReference } from "@/lib/feed-player";
 import { normalizePostResourceId, postDetailPath } from "@/lib/post-resource";
@@ -26,8 +26,8 @@ export default async function PlayerProfilePage({ params, searchParams }: { para
   ]);
   return <div className="content-page player-profile-page profile-page">
     <section className="profile-hero player-profile-hero" style={{ "--profile-color": profile.user.color } as React.CSSProperties}>
-      <div className="profile-cover real-profile-cover" style={profile.user.coverData ? { backgroundImage: `url(${profile.user.coverData})` } : undefined}><div className={`profile-pattern pattern-${profile.user.pattern}`}><span>@{profile.user.username} · @{profile.user.username} · @{profile.user.username}</span></div></div>
-      <div className="profile-identity player-profile-identity"><UserAvatar user={profile.user} size="xl" /><div><span className="eyebrow">{profile.user.accountVisibility === "private" ? <><LockKeyhole size={12} /> Gizli hesap</> : "Herkese açık hesap"}</span><h1>{profile.user.displayName}</h1><span>@{profile.user.username} · <MapPin size={13} /> {profile.user.city}, {profile.user.country}</span><p>{profile.user.bio || "Bu kaşif henüz biyografi eklememiş."}</p></div><FollowButton userId={profile.user.id} initialRelation={profile.relation === "following" ? "following" : profile.relation === "requested" ? "requested" : "none"} /></div>
+      <ProfileCoverMedia user={profile.user} />
+      <div className="profile-identity player-profile-identity"><ProfileAvatarMedia user={profile.user} /><div><span className="eyebrow">{profile.user.accountVisibility === "private" ? <><LockKeyhole size={12} /> Gizli hesap</> : "Herkese açık hesap"}</span><h1>{profile.user.displayName}</h1><span>@{profile.user.username} · <MapPin size={13} /> {profile.user.city}, {profile.user.country}</span><p>{profile.user.bio || "Bu kaşif henüz biyografi eklememiş."}</p></div><FollowButton userId={profile.user.id} initialRelation={profile.relation === "following" ? "following" : profile.relation === "requested" ? "requested" : "none"} /></div>
       <div className="profile-social"><SocialConnections followersCount={profile.stats.followers} followingCount={profile.stats.following} userId={profile.user.id} /><span className="profile-joined">{new Date(profile.user.createdAt).toLocaleDateString("tr-TR", { month: "long", year: "numeric" })} tarihinden beri</span></div>
     </section>
     <section className="profile-stats-grid">

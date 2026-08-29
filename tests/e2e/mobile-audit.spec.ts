@@ -171,6 +171,49 @@ test("gerçek telefon dokunması sayfayı kaydırır ve bağlantıları etkinle�
   await health.assertClean();
 });
 
+test("alt navigasyon yavaş rota yanıtında anında geri bildirim verir", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "mobile-390x844", "Geçiş gecikmesi orta mobil profilde bir kez ölçülür.");
+  const health = watchBrowserFailures(page);
+  let delayedRouteRequests = 0;
+
+  await page.route("**/demo/explore**", async (route) => {
+    if (route.request().resourceType() === "fetch") {
+      delayedRouteRequests += 1;
+      await page.waitForTimeout(650);
+    }
+    await route.continue();
+  });
+
+  await openRoute(page, "/demo/home", "Akışın");
+  const exploreNavigation = page.locator('.bottom-nav a[href="/demo/explore"]');
+  const feedbackMs = await exploreNavigation.evaluate((element) => new Promise<number>((resolve, reject) => {
+    const startedAt = performance.now();
+    const timeout = window.setTimeout(() => {
+      observer.disconnect();
+      reject(new Error("Sekme geri bildirimi 500 ms içinde görünmedi."));
+    }, 500);
+    const finish = () => {
+      if (!element.classList.contains("is-active")) return;
+      window.clearTimeout(timeout);
+      observer.disconnect();
+      resolve(performance.now() - startedAt);
+    };
+    const observer = new MutationObserver(finish);
+    observer.observe(element, { attributes: true, attributeFilter: ["class"] });
+    (element as HTMLElement).click();
+    finish();
+  }));
+  test.info().annotations.push({ type: "navigation-feedback-ms", description: String(feedbackMs) });
+
+  await page.waitForURL(/\/demo\/explore$/);
+  await expect(exploreNavigation).toHaveAttribute("aria-current", "page");
+  await expect(exploreNavigation).not.toHaveClass(/is-navigation-pending/);
+  await page.unrouteAll({ behavior: "wait" });
+  expect(feedbackMs, "Sekme geri bildirimi 200 ms algı eşiğinin altında kalmalı").toBeLessThan(200);
+  expect(delayedRouteRequests, "Ölçüm gerçek bir geciktirilmiş RSC isteği içermeli").toBeGreaterThan(0);
+  await health.assertClean();
+});
+
 test("bütün mobil ekranlar taşmadan açılır ve sabit gezinme kullanılabilir kalır", async ({ page }, testInfo) => {
   const health = watchBrowserFailures(page);
   for (const [path, heading] of mobileRoutes) {

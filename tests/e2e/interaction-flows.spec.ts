@@ -1,6 +1,7 @@
 import type { CDPSession, Locator, Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
 import { expectNoHorizontalOverflow, openRoute, watchBrowserFailures } from "./support";
+import { jpegDataUrl } from "../../src/test/image-fixtures";
 
 test.use({
   viewport: { width: 390, height: 844 },
@@ -58,8 +59,8 @@ test.describe("mobil gerçek kullanıcı etkileşimleri", () => {
     await panel.getByRole("button", { name: "Gerçek konum" }).click();
     await page.locator(".game-session-card").getByRole("button", { name: "Harekete geç" }).click();
 
-    await expect(panel).toContainText("İzin verilmedi");
-    await expect(page.locator(".claim-toast[role='alert']")).toContainText("Gerçek konum için adres çubuğundaki konum iznini aç");
+    await expect(panel).toContainText("Konum izni verilmedi");
+    await expect(page.locator(".claim-toast[role='alert']")).toContainText("Tarayıcı ayarlarından mrap için konum erişimini açabilirsin");
     await expect(page.getByText("Rota canlı kaydediliyor", { exact: true })).toHaveCount(0);
 
     await panel.getByRole("button", { name: "Sanal konum" }).click();
@@ -179,6 +180,42 @@ test.describe("mobil gerçek kullanıcı etkileşimleri", () => {
     await expect(page).toHaveURL(/\/demo\/users\/ecewrap$/);
     await expect(page.getByRole("heading", { name: "Ece Güner" })).toBeVisible();
     await expectNoHorizontalOverflow(page, "bağlantı listesinden profil geçişi");
+    await health.assertClean();
+  });
+
+  test("profil ve kapak fotoğrafları erişilebilir panelde büyür; gerçek kapakta yer tutucu gizlenir", async ({ page }) => {
+    const health = watchBrowserFailures(page);
+    const profileImage = jpegDataUrl(320, 320);
+    const coverImage = jpegDataUrl(1_200, 480);
+    await page.addInitScript(({ avatarData, coverData }) => {
+      window.localStorage.setItem("mrap:demo-profile:v1", JSON.stringify({ avatarData, coverData }));
+    }, { avatarData: profileImage, coverData: coverImage });
+
+    await openRoute(page, "/demo/profile", page.locator(".profile-identity h1"));
+    const cover = page.getByRole("button", { name: "Cayan Akın kapak fotoğrafını büyüt" });
+    const avatar = page.getByRole("button", { name: "Cayan Akın profil fotoğrafını büyüt" });
+    await expect(cover).toBeVisible();
+    await expect(avatar).toBeVisible();
+    await expect(page.locator(".profile-cover .profile-pattern")).toHaveCount(0);
+
+    await cover.click();
+    const coverDialog = page.getByRole("dialog", { name: "Cayan Akın kapak fotoğrafı" });
+    await expect(coverDialog).toBeVisible();
+    await expect(coverDialog.getByAltText("Cayan Akın kapak fotoğrafı büyütülmüş görünüm")).toBeVisible();
+    await coverDialog.getByRole("button", { name: "Kapak fotoğrafını kapat" }).click();
+    await expect(cover).toBeFocused();
+
+    await avatar.click();
+    const avatarDialog = page.getByRole("dialog", { name: "Cayan Akın profil fotoğrafı" });
+    await expect(avatarDialog).toBeVisible();
+    await expect(avatarDialog.getByAltText("Cayan Akın profil fotoğrafı büyütülmüş görünüm")).toBeVisible();
+    await avatarDialog.getByRole("button", { name: "Profil fotoğrafını kapat" }).click();
+    await expect(avatar).toBeFocused();
+
+    await openRoute(page, "/demo/settings", "Ayarlar");
+    await expect(page.locator(".settings-cover-preview .profile-pattern")).toHaveCount(0);
+    await expect(page.locator(".settings-cover-preview").getByRole("button", { name: "Cayan Akın kapak fotoğrafını büyüt" })).toBeVisible();
+    await expectNoHorizontalOverflow(page, "profil medya önizlemesi");
     await health.assertClean();
   });
 });

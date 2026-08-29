@@ -3,7 +3,6 @@ import { AnalyticsReporter } from "@/components/AnalyticsReporter";
 import { I18nProvider } from "@/i18n/I18nProvider";
 import { DEFAULT_LOCALE, PRODUCT_NAME } from "@/lib/app-config";
 import { resolvePublicOrigin } from "@/lib/public-origin";
-import "maplibre-gl/dist/maplibre-gl.css";
 import "./globals.css";
 
 export const metadata: Metadata = {

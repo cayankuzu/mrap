@@ -198,6 +198,113 @@ describe("Supabase repository production sözleşmeleri", () => {
     expect(countQueries.every((entry) => !operation(entry.operations, "or"))).toBe(true);
   });
 
+  it("kendi gönderi akışında gereksiz takip ve açık profil kapsamı okumaz", async () => {
+    const double = adminDouble((table, operations) => {
+      if (table === "posts") {
+        const selectOptions = operation(operations, "select")?.args[1] as { head?: boolean } | undefined;
+        return selectOptions?.head
+          ? { data: null, error: null, count: 0 }
+          : { data: [], error: null };
+      }
+      return { data: [], error: null };
+    });
+    mocks.createAdmin.mockReturnValue(double.admin);
+
+    await expect(listPostPage(profile.id, "mine")).resolves.toEqual({ posts: [], nextCursor: null, total: 0 });
+    expect(double.queryLog.some((entry) => entry.table === "follows")).toBe(false);
+    expect(double.queryLog.some((entry) => entry.table === "profiles")).toBe(false);
+  });
+
+  it("gönderi durumlarını post başına tekrar etmek yerine sınırlı in sorgularıyla toplar", async () => {
+    const postIds = [
+      "00000000-0000-4000-8000-000000000101",
+      "00000000-0000-4000-8000-000000000102",
+    ];
+    const claimIds = [
+      "00000000-0000-4000-8000-000000000201",
+      "00000000-0000-4000-8000-000000000202",
+    ];
+    const sessionIds = [
+      "00000000-0000-4000-8000-000000000301",
+      "00000000-0000-4000-8000-000000000302",
+    ];
+    const posts = postIds.map((id, index) => ({
+      id,
+      author_id: profile.id,
+      claim_id: claimIds[index],
+      claim_event_id: claimIds[index],
+      title: `Alan ${index + 1}`,
+      body: "",
+      map_view: null,
+      map_snapshot_object_key: null,
+      idempotency_key: null,
+      payload_hash: null,
+      created_at: `2026-08-27T10:0${index}:00.000Z`,
+    }));
+    const claims = claimIds.map((id, index) => ({
+      id,
+      user_id: profile.id,
+      route_session_id: sessionIds[index],
+      raw_polygon: { type: "Polygon", coordinates: [[[29, 41], [29.001, 41], [29.001, 41.001], [29, 41]]] },
+      newly_claimed_area_m2: 100,
+      already_owned_area_m2: 0,
+      total_loop_area_m2: 100,
+      final_territory_area_m2: 100,
+      selected_color_id: "#0D8BFF",
+      committed_at_server: `2026-08-27T10:0${index}:00.000Z`,
+    }));
+    const sessions = sessionIds.map((id) => ({
+      id,
+      player_id: profile.id,
+      location_mode: "real_gps",
+      distance_m: 100,
+      duration_seconds: 60,
+      point_count: 4,
+      started_at: "2026-08-27T09:59:00.000Z",
+      ended_at: "2026-08-27T10:00:00.000Z",
+      created_at: "2026-08-27T10:00:00.000Z",
+    }));
+    const double = adminDouble((table, operations) => {
+      const selectOptions = operation(operations, "select")?.args[1] as { head?: boolean } | undefined;
+      if (table === "posts") return selectOptions?.head
+        ? { data: null, error: null, count: posts.length }
+        : { data: posts, error: null };
+      if (table === "profiles") return { data: [profile], error: null };
+      if (table === "cities") return { data: [{ id: "istanbul", name_tr: "İstanbul" }], error: null };
+      if (table === "countries") return { data: [{ code: "TR", name_tr: "Türkiye" }], error: null };
+      if (table === "claim_events") return { data: claims, error: null };
+      if (table === "route_sessions") return { data: sessions, error: null };
+      if (table === "post_media") return { data: [], error: null };
+      if (table === "likes") return selectOptions?.head
+        ? { data: null, error: null, count: 3 }
+        : { data: [{ post_id: postIds[0] }], error: null };
+      if (table === "comments") return { data: null, error: null, count: 2 };
+      if (table === "saved_posts") return { data: [{ post_id: postIds[1] }], error: null };
+      return { data: [], error: null };
+    });
+    mocks.createAdmin.mockReturnValue(double.admin);
+
+    const page = await listPostPage(profile.id, "mine");
+
+    expect(page.posts).toHaveLength(2);
+    expect(Object.fromEntries(page.posts.map((post) => [post.id, {
+      likedByMe: post.likedByMe,
+      savedByMe: post.savedByMe,
+      likes: post.likes,
+      comments: post.comments,
+    }]))).toEqual({
+      [postIds[0]]: { likedByMe: true, savedByMe: false, likes: 3, comments: 2 },
+      [postIds[1]]: { likedByMe: false, savedByMe: true, likes: 3, comments: 2 },
+    });
+    const ownLikeQueries = double.queryLog.filter((entry) => entry.table === "likes"
+      && !(operation(entry.operations, "select")?.args[1] as { head?: boolean } | undefined)?.head);
+    const ownSaveQueries = double.queryLog.filter((entry) => entry.table === "saved_posts");
+    expect(ownLikeQueries).toHaveLength(1);
+    expect(ownSaveQueries).toHaveLength(1);
+    expect(new Set(operation(ownLikeQueries[0].operations, "in")?.args[1] as string[])).toEqual(new Set(postIds));
+    expect(new Set(operation(ownSaveQueries[0].operations, "in")?.args[1] as string[])).toEqual(new Set(postIds));
+  });
+
   it("eşzamanlı duplicate beğenide ikinci bildirim üretmez", async () => {
     const double = adminDouble((table, operations) => {
       if (table === "posts") return { data: { author_id: profile.id }, error: null };

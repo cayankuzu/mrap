@@ -18,6 +18,7 @@ const primaryRoutes = new Set(["/home", "/explore", "/play", "/leaderboard", "/p
 function AppNavigation({ mobile = false, demo = false }: { mobile?: boolean; demo?: boolean }) {
   const { dictionary: copy } = useI18n();
   const pathname = usePathname();
+  const [pendingNavigation, setPendingNavigation] = useState<{ href: string; fromPath: string } | null>(null);
   const prefix = demo ? "/demo" : "";
   const navItems = [
     { href: "/home", label: copy.navigation.home, icon: Home },
@@ -26,14 +27,40 @@ function AppNavigation({ mobile = false, demo = false }: { mobile?: boolean; dem
     { href: "/leaderboard", label: copy.navigation.leaderboard, icon: Trophy },
     { href: "/profile", label: copy.navigation.profile, icon: UserRound },
   ];
+
+  useEffect(() => {
+    if (!pendingNavigation) return;
+    const timer = window.setTimeout(() => setPendingNavigation(null), 8_000);
+    return () => window.clearTimeout(timer);
+  }, [pendingNavigation]);
+
   return (
     <nav className={mobile ? "bottom-nav" : "side-nav"} aria-label={copy.navigation.ariaLabel}>
       {navItems.map((item) => {
         const href = `${prefix}${item.href}`;
         const active = pathname === href || pathname.startsWith(`${href}/`);
+        const pending = pendingNavigation?.href === href && pendingNavigation.fromPath === pathname && !active;
         const Icon = item.icon;
         return (
-          <Link key={href} href={href} className={`nav-item${active ? " is-active" : ""}${item.primary ? " nav-item--primary" : ""}`} aria-current={active ? "page" : undefined}>
+          <Link
+            key={href}
+            href={href}
+            prefetch={mobile ? true : null}
+            className={`nav-item${active || pending ? " is-active" : ""}${pending ? " is-navigation-pending" : ""}${item.primary ? " nav-item--primary" : ""}`}
+            aria-current={active ? "page" : undefined}
+            aria-busy={pending || undefined}
+            onPointerDown={(event) => {
+              if (event.isPrimary && event.button === 0 && !active) setPendingNavigation({ href, fromPath: pathname });
+            }}
+            onPointerCancel={() => setPendingNavigation((current) => current?.href === href ? null : current)}
+            onClick={(event) => {
+              if (active || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+                setPendingNavigation((current) => current?.href === href ? null : current);
+                return;
+              }
+              setPendingNavigation({ href, fromPath: pathname });
+            }}
+          >
             <span className="nav-icon-wrap"><Icon size={mobile ? 22 : 20} strokeWidth={active ? 2.5 : 2} /></span>
             <span>{item.label}</span>
           </Link>

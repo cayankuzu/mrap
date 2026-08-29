@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { FeatureCollection, LineString, Point, Polygon } from "geojson";
-import { GeoJSONSource, Map as MapLibreMap, Popup, setWorkerUrl, type MapLayerMouseEvent, type MapMouseEvent } from "maplibre-gl";
-import { Check, ChevronDown, ChevronRight, Crosshair, EyeOff, Flag, Footprints, Gauge, MapPin, Navigation, Pause, Play, Radio, RotateCcw, Route, ShieldCheck, Square, Timer, X, Zap } from "lucide-react";
+import type { GeoJSONSource, Map as MapLibreMap, MapLayerMouseEvent, MapMouseEvent } from "maplibre-gl";
+import "maplibre-gl/dist/maplibre-gl.css";
+import { Check, ChevronDown, ChevronRight, Crosshair, EyeOff, Flag, Footprints, Gauge, LoaderCircle, MapPin, Navigation, Pause, Play, Radio, RotateCcw, Route, ShieldCheck, Square, Timer, X, Zap } from "lucide-react";
 import { ColorPalette } from "@/components/ColorPalette";
 import { ConfirmationDialog } from "@/components/ConfirmationDialog";
 import { AuthoritativeGameStateMachine, type AuthoritativeUiEvent } from "@/lib/game/authoritative-state-machine";
@@ -25,14 +26,14 @@ import { territoryProfilePath } from "@/lib/territory-profile-path";
 import { formatMessage } from "@/i18n/format";
 import { useI18n } from "@/i18n/I18nProvider";
 
-setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
-
 const ISTANBUL_CENTER: Coordinate = [29.027, 40.987];
 const EMPTY_COLLECTION: FeatureCollection = { type: "FeatureCollection", features: [] };
 const VALID_ROUTE_COLOR = /^#[0-9a-f]{6}$/i;
 const ROUTE_COLOR_EVENT = "mrap-route-color-change";
 const POINT_BATCH_SIZE = 4;
 const POINT_FLUSH_DELAY_MS = 900;
+const PREFETCHED_LOCATION_MAX_AGE_MS = 30_000;
+const MAP_LIBRARY_IDLE_TIMEOUT_MS = 1_800;
 const configuredRegionZoom = Number(process.env.NEXT_PUBLIC_MRAP_REGION_ZOOM);
 const configuredMaximumRegions = Number(process.env.NEXT_PUBLIC_MRAP_MAX_VIEWPORT_REGIONS);
 const VIEWPORT_REGION_ZOOM = Number.isSafeInteger(configuredRegionZoom) && configuredRegionZoom >= 8 && configuredRegionZoom <= 18 ? configuredRegionZoom : 14;
@@ -146,6 +147,10 @@ export function GameMap({ user, mapState: initialMapState, demo = false }: { use
   const confirmedMapEpochRef = useRef(0);
   const requestRegionSnapshotRef = useRef<(() => void) | null>(null);
   const activeLocationStopRef = useRef<(() => void) | null>(null);
+  const prefetchedRealLocationRef = useRef<LocationSample | null>(null);
+  const realLocationRequestRef = useRef<Promise<LocationSample | null> | null>(null);
+  const realLocationPreflightStartedRef = useRef(false);
+  const componentActiveRef = useRef(false);
   const networkTestConfigRef = useRef<NetworkTestConfig>({ latencyMs: 0, packetLossPercent: 0, duplicateBatch: false });
   const networkPacketCounterRef = useRef(0);
   const resumeNeedsAnchorRef = useRef(false);
@@ -191,6 +196,46 @@ export function GameMap({ user, mapState: initialMapState, demo = false }: { use
   const [queuedPointCount, setQueuedPointCount] = useState(0);
   const [offlineDraftCount, setOfflineDraftCount] = useState(0);
   const [pointSyncState, setPointSyncState] = useState<PointSyncState>("synced");
+  const [mapLibrary, setMapLibrary] = useState<typeof import("maplibre-gl") | null>(null);
+
+  useEffect(() => {
+    componentActiveRef.current = true;
+    return () => {
+      componentActiveRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (mapLibrary) return;
+    let cancelled = false;
+    let timer = 0;
+    let idleHandle: number | null = null;
+    const browserWindow = window as Window & {
+      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+    const loadMapLibrary = () => {
+      void import("maplibre-gl").then((module) => {
+        if (cancelled) return;
+        module.setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
+        setMapLibrary(module);
+      }).catch(() => {
+        if (!cancelled) setMapLoadFailed(true);
+      });
+    };
+    timer = window.setTimeout(() => {
+      if (browserWindow.requestIdleCallback) {
+        idleHandle = browserWindow.requestIdleCallback(loadMapLibrary, { timeout: MAP_LIBRARY_IDLE_TIMEOUT_MS });
+      } else {
+        loadMapLibrary();
+      }
+    }, 350);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+      if (idleHandle !== null) browserWindow.cancelIdleCallback?.(idleHandle);
+    };
+  }, [mapLibrary, mapRetryKey]);
 
   const transitionAuthoritative = useCallback((event: AuthoritativeUiEvent) => {
     if (event === "OFFLINE") {
@@ -587,10 +632,10 @@ export function GameMap({ user, mapState: initialMapState, demo = false }: { use
   useEffect(() => { authoritativeCandidateRef.current = authoritativeCandidate; }, [authoritativeCandidate]);
 
   useEffect(() => {
-    if (!mapContainerRef.current || mapRef.current) return;
+    if (!mapContainerRef.current || mapRef.current || !mapLibrary) return;
     let map: MapLibreMap;
     try {
-      map = new MapLibreMap({
+      map = new mapLibrary.Map({
         container: mapContainerRef.current,
         style: OPEN_FREE_MAP_STYLE,
         center: ISTANBUL_CENTER,
@@ -654,7 +699,7 @@ export function GameMap({ user, mapState: initialMapState, demo = false }: { use
       profile.textContent = "Profili gör →";
       copy.append(title, meta, profile);
       card.append(swatch, copy);
-      new Popup({ closeButton: true, offset: 12, className: "territory-owner-popup" }).setLngLat(event.lngLat).setDOMContent(card).addTo(map);
+      new mapLibrary.Popup({ closeButton: true, offset: 12, className: "territory-owner-popup" }).setLngLat(event.lngLat).setDOMContent(card).addTo(map);
     };
     const handleTerritoryMouseEnter = () => { map.getCanvas().style.cursor = "pointer"; };
     const handleTerritoryMouseLeave = () => { map.getCanvas().style.cursor = ""; };
@@ -727,7 +772,7 @@ export function GameMap({ user, mapState: initialMapState, demo = false }: { use
       map.remove();
       if (mapRef.current === map) mapRef.current = null;
     };
-  }, [demo, mapRetryKey, user.color, user.username]);
+  }, [demo, mapLibrary, mapRetryKey, user.color, user.username]);
 
   useEffect(() => {
     if (demo || !runtimeActive || !networkOnline || !mapReady || visibleRegionIds.length === 0) return;
@@ -1173,28 +1218,70 @@ export function GameMap({ user, mapState: initialMapState, demo = false }: { use
     return () => window.removeEventListener("keydown", moveWithKeyboard);
   }, [locationMode, speed, trackingActive]);
 
-  async function requestRealLocation() {
-    if (!navigator.geolocation) { setMessage("Bu tarayıcı konum özelliğini desteklemiyor."); return null; }
-    setLocationStatus("İzin bekleniyor…");
-    return new Promise<LocationSample | null>((resolve) => {
+  const requestRealLocation = useCallback((allowFreshPrefetch = true) => {
+    const prefetched = prefetchedRealLocationRef.current;
+    const prefetchedAgeMs = prefetched ? Date.now() - prefetched.timestamp : Number.POSITIVE_INFINITY;
+    if (allowFreshPrefetch && prefetched && prefetchedAgeMs >= -1_000 && prefetchedAgeMs <= PREFETCHED_LOCATION_MAX_AGE_MS) {
+      return Promise.resolve(prefetched);
+    }
+    if (realLocationRequestRef.current) return realLocationRequestRef.current;
+    if (!navigator.geolocation) {
+      if (componentActiveRef.current) {
+        setLocationStatus(copy.game.locationUnavailableStatus);
+        setMessage(copy.game.locationUnsupported);
+      }
+      return Promise.resolve(null);
+    }
+    if (componentActiveRef.current) setLocationStatus(copy.game.locationPermissionWaiting);
+    const pending = new Promise<LocationSample | null>((resolve) => {
       navigator.geolocation.getCurrentPosition(
         (value) => {
           const sample = { coordinate: [value.coords.longitude, value.coords.latitude] as Coordinate, accuracyM: value.coords.accuracy, timestamp: value.timestamp };
-          positionRef.current = sample.coordinate;
-          setLocationStatus(`Konum hazır · ±${Math.round(value.coords.accuracy)} m`);
-          updateLiveSources(session, sample.coordinate);
-          mapRef.current?.easeTo({ center: sample.coordinate, duration: 500 });
+          if (componentActiveRef.current) {
+            prefetchedRealLocationRef.current = sample;
+            positionRef.current = sample.coordinate;
+            setLocationStatus(formatMessage(copy.game.locationReady, { accuracy: Math.round(value.coords.accuracy) }));
+            updateLiveSources(session, sample.coordinate);
+            mapRef.current?.easeTo({ center: sample.coordinate, duration: 500 });
+          }
           resolve(sample);
         },
-        () => { setLocationStatus("İzin verilmedi"); setMessage("Gerçek konum için adres çubuğundaki konum iznini aç. Masaüstünde sanal konumu kullanabilirsin."); resolve(null); },
+        (error) => {
+          if (componentActiveRef.current) {
+            if (error.code === 1) {
+              setLocationStatus(copy.game.locationPermissionDeniedStatus);
+              setMessage(copy.game.locationPermissionDenied);
+            } else if (error.code === 2) {
+              setLocationStatus(copy.game.locationUnavailableStatus);
+              setMessage(copy.game.locationUnavailable);
+            } else {
+              setLocationStatus(copy.game.locationTimedOutStatus);
+              setMessage(copy.game.locationTimedOut);
+            }
+          }
+          resolve(null);
+        },
         { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 },
       );
     });
-  }
+    realLocationRequestRef.current = pending;
+    void pending.finally(() => {
+      if (realLocationRequestRef.current === pending) realLocationRequestRef.current = null;
+    });
+    return pending;
+  }, [copy.game.locationPermissionDenied, copy.game.locationPermissionDeniedStatus, copy.game.locationPermissionWaiting, copy.game.locationReady, copy.game.locationTimedOut, copy.game.locationTimedOutStatus, copy.game.locationUnavailable, copy.game.locationUnavailableStatus, copy.game.locationUnsupported, session, setLocationStatus, setMessage, updateLiveSources]);
+
+  useEffect(() => {
+    if (demo || locationMode !== "real" || realLocationPreflightStartedRef.current) return;
+    realLocationPreflightStartedRef.current = true;
+    void requestRealLocation(false);
+  }, [demo, locationMode, requestRealLocation]);
 
   async function startTracking() {
     if (sessionStarting || sessionRecovering) return;
     setSessionStarting(true);
+    setMessage("");
+    setInfoNotice("");
     let sample: LocationSample = { coordinate: positionRef.current, accuracyM: 0, timestamp: Date.now() };
     try {
       if (!demo) {
@@ -1203,7 +1290,7 @@ export function GameMap({ user, mapState: initialMapState, demo = false }: { use
         if (!requested.accepted) throw new Error("Yeni rota mevcut oyun durumunda başlatılamıyor.");
       }
       if (locationMode === "real") {
-        const realSample = await requestRealLocation();
+        const realSample = await requestRealLocation(true);
         if (!realSample) {
           if (!demo) transitionAuthoritative("REJECT");
           return;
@@ -1704,7 +1791,8 @@ export function GameMap({ user, mapState: initialMapState, demo = false }: { use
             <div className="session-idle-head"><span className="session-icon"><Footprints size={24} /></span><div><span className="eyebrow">{demo ? copy.game.demoRoute : `${copy.game.realRoute} · ${authoritativeStateLabel}`}</span><h1>{copy.game.strategicRouteTitle}</h1></div><button type="button" className="session-collapse-button" onClick={() => setSessionCardCollapsed(true)} aria-label={copy.game.collapseRoutePanel} aria-expanded="true"><ChevronDown size={18} /></button></div>
             <p>{copy.game.freeLoopHint}</p>
             <div className="safe-note"><ShieldCheck size={17} /><span>{copy.game.privacyHint}</span></div>
-            <button type="button" className="start-session-button" onClick={() => void startTracking()} disabled={sessionStarting || sessionRecovering}><Navigation size={20} fill="currentColor" /> {sessionRecovering ? copy.game.recovering : sessionStarting ? copy.game.starting : copy.game.startMoving}</button>
+            <button type="button" className="start-session-button" onClick={() => void startTracking()} disabled={sessionStarting || sessionRecovering} aria-busy={sessionStarting}><span className="start-session-button-icon">{sessionStarting ? <LoaderCircle className="session-start-spinner" size={20} aria-hidden="true" /> : <Navigation size={20} fill="currentColor" aria-hidden="true" />}</span> {sessionRecovering ? copy.game.recovering : sessionStarting ? copy.game.starting : copy.game.startMoving}</button>
+            {sessionStarting ? <div className="session-start-feedback" role="status" aria-live="polite">{copy.game.sessionPreparing}</div> : null}
             {demo || GAME_CONFIG.developerControls ? <button type="button" className="location-helper" onClick={() => setDeveloperOpen(true)}>{locationMode === "simulation" ? "WASD / yön tuşları panelini aç" : "Konum test panelini aç"} <ChevronRight size={16} /></button> : null}
           </>
         ) : session.state === "FINISHED" ? (

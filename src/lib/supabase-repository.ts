@@ -782,36 +782,51 @@ async function publicProfileIds() {
   return ids;
 }
 
-async function postScope(viewerId: string, mode: PostFeedMode, ownerId?: string) {
-  const followed = await followedIds(viewerId);
-  if (mode === "following") return { authorIds: [viewerId, ...followed], postIds: null as string[] | null };
-  if (mode === "mine") return { authorIds: [viewerId], postIds: null as string[] | null };
-  if (mode === "user") {
-    if (!ownerId) throw new RangeError("Kullanıcı akışı için sahip kimliği zorunlu.");
-    const owner = await hydratePublicRows([ownerId]);
-    const row = owner.get(ownerId);
-    const canView = Boolean(row && (row.account_visibility === "public" || ownerId === viewerId || followed.includes(ownerId)));
-    return { authorIds: canView ? [ownerId] : [], postIds: null as string[] | null };
-  }
-  if (mode === "explore") {
-    const excluded = new Set([viewerId, ...followed]);
-    return { authorIds: (await publicProfileIds()).filter((id) => !excluded.has(id)), postIds: null as string[] | null };
-  }
+async function savedPostIds(viewerId: string) {
   const admin = createMrapSupabaseAdminClient();
-  const savedPostIds: string[] = [];
+  const ids: string[] = [];
   for (let from = 0; ; from += SUPABASE_PAGE_SIZE) {
     const savedResult = await admin.from("saved_posts").select("post_id")
       .eq("user_id", viewerId)
       .order("post_id", { ascending: true })
       .range(from, from + SUPABASE_PAGE_SIZE - 1);
     assertNoError(savedResult.error, "Kaydedilenler okuma");
-    savedPostIds.push(...(savedResult.data ?? []).map((row) => String(row.post_id)));
+    ids.push(...(savedResult.data ?? []).map((row) => String(row.post_id)));
     if ((savedResult.data ?? []).length < SUPABASE_PAGE_SIZE) break;
   }
-  const visible = new Set([viewerId, ...followed, ...(await publicProfileIds())]);
+  return ids;
+}
+
+async function postScope(viewerId: string, mode: PostFeedMode, ownerId?: string) {
+  if (mode === "mine") return { authorIds: [viewerId], postIds: null as string[] | null };
+  if (mode === "following") {
+    const followed = await followedIds(viewerId);
+    return { authorIds: [viewerId, ...followed], postIds: null as string[] | null };
+  }
+  if (mode === "user") {
+    if (!ownerId) throw new RangeError("Kullanıcı akışı için sahip kimliği zorunlu.");
+    const [owner, followed] = await Promise.all([
+      hydratePublicRows([ownerId]),
+      ownerId === viewerId ? Promise.resolve([]) : followedIds(viewerId),
+    ]);
+    const row = owner.get(ownerId);
+    const canView = Boolean(row && (row.account_visibility === "public" || ownerId === viewerId || followed.includes(ownerId)));
+    return { authorIds: canView ? [ownerId] : [], postIds: null as string[] | null };
+  }
+  if (mode === "explore") {
+    const [followed, publicIds] = await Promise.all([followedIds(viewerId), publicProfileIds()]);
+    const excluded = new Set([viewerId, ...followed]);
+    return { authorIds: publicIds.filter((id) => !excluded.has(id)), postIds: null as string[] | null };
+  }
+  const [followed, publicIds, savedIds] = await Promise.all([
+    followedIds(viewerId),
+    publicProfileIds(),
+    savedPostIds(viewerId),
+  ]);
+  const visible = new Set([viewerId, ...followed, ...publicIds]);
   return {
     authorIds: [...visible],
-    postIds: savedPostIds,
+    postIds: savedIds,
   };
 }
 
@@ -887,45 +902,65 @@ async function claimTerritoryMap(ids: readonly string[]) {
   return result;
 }
 
-async function interactionState(viewerId: string, postId: string, authorId: string) {
+async function interactionStates(viewerId: string, rows: PostRow[]) {
   const admin = createMrapSupabaseAdminClient();
-  const [likes, comments, ownLike, ownSave] = await Promise.all([
-    admin.from("likes").select("*", { count: "exact", head: true }).eq("post_id", postId),
-    admin.from("comments").select("*", { count: "exact", head: true }).eq("post_id", postId),
-    admin.from("likes").select("user_id").eq("post_id", postId).eq("user_id", viewerId).maybeSingle(),
-    admin.from("saved_posts").select("user_id").eq("post_id", postId).eq("user_id", viewerId).maybeSingle(),
+  const postIds = rows.map((row) => row.id);
+  const authorIds = [...new Set(rows.map((row) => row.author_id).filter((id) => id !== viewerId))];
+  const emptyFollows = Promise.resolve({ data: [] as Array<{ followed_id: string }>, error: null });
+  const emptyRequests = Promise.resolve({ data: [] as Array<{ target_id: string }>, error: null });
+
+  const statusPromise = Promise.all([
+    admin.from("likes").select("post_id").eq("user_id", viewerId).in("post_id", postIds),
+    admin.from("saved_posts").select("post_id").eq("user_id", viewerId).in("post_id", postIds),
+    authorIds.length
+      ? admin.from("follows").select("followed_id").eq("follower_id", viewerId).in("followed_id", authorIds)
+      : emptyFollows,
+    authorIds.length
+      ? admin.from("follow_requests").select("target_id").eq("requester_id", viewerId).in("target_id", authorIds)
+      : emptyRequests,
   ]);
-  assertNoError(likes.error, "Beğeni sayısı okuma");
-  assertNoError(comments.error, "Yorum sayısı okuma");
-  assertNoError(ownLike.error, "Beğeni durumu okuma");
-  assertNoError(ownSave.error, "Kaydetme durumu okuma");
-  const [follow, request] = authorId === viewerId ? [{ data: null, error: null }, { data: null, error: null }] : await Promise.all([
-    admin.from("follows").select("follower_id").eq("follower_id", viewerId).eq("followed_id", authorId).maybeSingle(),
-    admin.from("follow_requests").select("requester_id").eq("requester_id", viewerId).eq("target_id", authorId).maybeSingle(),
-  ]);
-  assertNoError(follow.error, "Takip durumu okuma");
-  assertNoError(request.error, "Takip isteği durumu okuma");
-  return {
-    likes: likes.count ?? 0,
-    comments: comments.count ?? 0,
-    likedByMe: Boolean(ownLike.data),
-    savedByMe: Boolean(ownSave.data),
-    followedByMe: Boolean(follow.data),
-    requestedByMe: Boolean(request.data),
-  };
+  const countsPromise = Promise.all(rows.map(async (row) => {
+    const [likes, comments] = await Promise.all([
+      admin.from("likes").select("*", { count: "exact", head: true }).eq("post_id", row.id),
+      admin.from("comments").select("*", { count: "exact", head: true }).eq("post_id", row.id),
+    ]);
+    assertNoError(likes.error, "Beğeni sayısı okuma");
+    assertNoError(comments.error, "Yorum sayısı okuma");
+    return { likes: likes.count ?? 0, comments: comments.count ?? 0 };
+  }));
+
+  const [[ownLikes, ownSaves, follows, requests], counts] = await Promise.all([statusPromise, countsPromise]);
+  assertNoError(ownLikes.error, "Beğeni durumu okuma");
+  assertNoError(ownSaves.error, "Kaydetme durumu okuma");
+  assertNoError(follows.error, "Takip durumu okuma");
+  assertNoError(requests.error, "Takip isteği durumu okuma");
+  const likedPostIds = new Set((ownLikes.data ?? []).map((row) => String(row.post_id)));
+  const savedPostIds = new Set((ownSaves.data ?? []).map((row) => String(row.post_id)));
+  const followedAuthorIds = new Set((follows.data ?? []).map((row) => String(row.followed_id)));
+  const requestedAuthorIds = new Set((requests.data ?? []).map((row) => String(row.target_id)));
+  return rows.map((row, index) => ({
+    ...counts[index],
+    likedByMe: likedPostIds.has(row.id),
+    savedByMe: savedPostIds.has(row.id),
+    followedByMe: followedAuthorIds.has(row.author_id),
+    requestedByMe: requestedAuthorIds.has(row.author_id),
+  }));
 }
 
 async function rowsToPosts(viewerId: string, rows: PostRow[]): Promise<RealPost[]> {
   if (!rows.length) return [];
   const admin = createMrapSupabaseAdminClient();
-  const profiles = await hydratePublicRows(rows.map((row) => row.author_id));
-  const territories = await claimTerritoryMap(rows.map((row) => row.claim_event_id ?? ""));
-  const { data: mediaRows, error: mediaError } = await admin.from("post_media")
-    .select("post_id,sort_order").in("post_id", rows.map((row) => row.id)).order("sort_order", { ascending: true });
+  const [profiles, territories, mediaResult, interactions] = await Promise.all([
+    hydratePublicRows(rows.map((row) => row.author_id)),
+    claimTerritoryMap(rows.map((row) => row.claim_event_id ?? "")),
+    admin.from("post_media")
+      .select("post_id,sort_order").in("post_id", rows.map((row) => row.id)).order("sort_order", { ascending: true }),
+    interactionStates(viewerId, rows),
+  ]);
+  const { data: mediaRows, error: mediaError } = mediaResult;
   assertNoError(mediaError, "Gönderi medyası okuma");
   const mediaCounts = new Map<string, number>();
   for (const media of mediaRows ?? []) mediaCounts.set(String(media.post_id), (mediaCounts.get(String(media.post_id)) ?? 0) + 1);
-  const interactions = await Promise.all(rows.map((row) => interactionState(viewerId, row.id, row.author_id)));
   const posts: RealPost[] = [];
   rows.forEach((row, index) => {
     const user = profiles.get(row.author_id);
