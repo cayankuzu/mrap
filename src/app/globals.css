@@ -2576,3 +2576,99 @@ p {
   .media-lightbox > section.profile-media-dialog,
   .media-lightbox > section.profile-media-dialog.is-avatar { width: 100vw; height: 100dvh; }
 }
+
+/* Oyun HUD'u: süre ve metrikler kahraman değer, etiketler ikincil */
+.game-session-card { width: 360px; padding: 18px; border-radius: 22px; }
+
+.recording-header { gap: 12px; }
+.recording-header > div { gap: 3px; }
+.recording-header span { color: #5b675f; font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+.recording-header strong { margin-top: 0; font-size: 30px; font-weight: 850; letter-spacing: -.03em; line-height: 1; font-variant-numeric: tabular-nums; }
+.recording-pulse { width: 12px; height: 12px; box-shadow: 0 0 0 4px rgba(255, 128, 102, .18); }
+.recording-pulse.is-paused { box-shadow: 0 0 0 4px rgba(243, 184, 63, .22); }
+
+.live-stats { gap: 6px; margin: 14px 0 12px; }
+.live-stats > span { gap: 6px; padding: 11px 11px 12px; border: 1px solid #e4e9e1; border-radius: 13px; background: #f6f8f4; }
+.live-stats small { display: flex; align-items: center; gap: 5px; color: #5f6b63; font-size: 10px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+.live-stats small svg { flex: none; margin: 0; color: #0f9a83; }
+.live-stats strong { margin: 0; color: var(--ink); font-size: 17px; font-weight: 850; letter-spacing: -.02em; line-height: 1.1; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+.loop-progress { position: relative; padding: 11px 12px; overflow: hidden; border: 1px solid #e4e9e1; border-radius: 13px; background: #fbfcfa; transition: border-color .2s ease, background .2s ease; }
+.loop-progress > div:first-child { align-items: center; gap: 10px; font-size: 11px; }
+.loop-progress > div:first-child strong { display: flex; align-items: center; gap: 7px; font-size: 12px; }
+.loop-progress > div:first-child strong::before { width: 8px; height: 8px; flex: none; border-radius: 50%; background: #9aa69e; content: ""; }
+.loop-progress.is-scanning > div:first-child strong::before { background: var(--brand); animation: loop-dot 1.4s ease-in-out infinite; }
+.loop-progress.is-pending > div:first-child strong::before { background: var(--gold); animation: loop-dot 1s ease-in-out infinite; }
+.loop-progress.is-ready { border-color: rgba(18, 205, 176, .5); background: #effcf8; }
+.loop-progress.is-ready > div:first-child strong::before { background: var(--lime); }
+.loop-progress.is-ready > div:first-child span { color: #087c63; font-weight: 800; }
+.loop-progress p { margin-top: 6px; color: #66726a; font-size: 11px; line-height: 1.45; }
+.loop-progress.is-scanning::after {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--brand), transparent) no-repeat;
+  background-size: 40% 100%;
+  content: "";
+  animation: loop-scan 1.8s ease-in-out infinite;
+}
+@keyframes loop-dot { 50% { opacity: .35; transform: scale(.8); } }
+@keyframes loop-scan { from { background-position: -60% 0; } to { background-position: 160% 0; } }
+
+.session-actions { gap: 8px; margin-top: 12px; }
+.session-actions button { height: 46px; border-radius: 13px; font-size: 13px; font-weight: 850; transition: transform .15s ease, filter .15s ease; }
+.session-actions button:not(:disabled):hover { filter: brightness(1.04); transform: translateY(-1px); }
+.session-actions button:disabled { cursor: not-allowed; opacity: .5; }
+
+.session-idle-head h1 { font-size: 18px; }
+.start-session-button { height: 52px; border-radius: 14px; font-size: 14px; box-shadow: 0 12px 26px rgba(21, 34, 27, .18); transition: transform .15s ease, box-shadow .15s ease; }
+.start-session-button:not(:disabled):hover { box-shadow: 0 16px 32px rgba(21, 34, 27, .24); transform: translateY(-1px); }
+.location-helper { font-size: 12px; }
+
+.completed-metrics small { font-size: 10px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+.completed-metrics strong { font-size: 17px; font-weight: 850; font-variant-numeric: tabular-nums; }
+
+/* Gizlilik notu harita atfının üstüne binmez */
+.map-privacy-pill { top: 24px; right: auto; bottom: auto; left: 26px; padding: 8px 12px; border: 1px solid rgba(255, 255, 255, .8); border-radius: 999px; color: #56635a; font-size: 11px; font-weight: 700; }
+
+.claim-toast { gap: 11px; padding: 12px 12px 12px 14px; border-radius: 16px; animation: claim-toast-in .35s cubic-bezier(.2, .8, .2, 1) both; }
+.claim-toast > svg { flex: none; width: 30px; height: 30px; padding: 6px; border-radius: 10px; background: rgba(18, 205, 176, .14); }
+.claim-toast.is-error > svg { background: rgba(190, 45, 45, .1); }
+.claim-toast strong { font-size: 13px; }
+.claim-toast small { font-size: 11px; line-height: 1.4; }
+@keyframes claim-toast-in { from { opacity: 0; transform: translateY(-8px) scale(.98); } }
+
+.loop-claim-sheet { border-color: rgba(18, 205, 176, .42); box-shadow: 0 22px 60px rgba(17, 34, 25, .22), 0 0 0 4px rgba(18, 205, 176, .12); animation: claim-sheet-in .38s cubic-bezier(.2, .8, .2, 1) both; }
+.loop-claim-sheet small { font-size: 10px; }
+.loop-claim-sheet h2 { font-size: 19px; }
+.loop-claim-sheet p { font-size: 12px; font-variant-numeric: tabular-nums; }
+.loop-sheet-actions button { height: 44px; font-size: 13px; }
+@keyframes claim-sheet-in { from { opacity: 0; transform: translateY(12px); } }
+
+/* Açılış başlığı: harfler birbirine değmez */
+.hero-copy h1 { margin-bottom: 30px; letter-spacing: -.058em; }
+
+@media (max-width: 900px) {
+  /* Canlı kayıt sırasında ayar akordeonları gizlenir; HUD haritayı boğmaz. */
+  .game-session-card:has(.recording-header) .map-safety-note,
+  .game-session-card:has(.recording-header) .session-color-picker { display: none; }
+  .game-session-card { width: auto; padding: 15px; }
+  .recording-header strong { font-size: 26px; }
+  .live-stats strong { font-size: 15px; }
+}
+
+@media (max-width: 420px) {
+  .live-stats > span { padding: 9px 8px 10px; }
+  .live-stats small { font-size: 9px; letter-spacing: .03em; }
+  .live-stats strong { font-size: 14px; }
+  .loop-claim-sheet h2 { font-size: 16px; }
+  .loop-claim-sheet p { font-size: 11px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loop-progress.is-scanning::after,
+  .claim-toast,
+  .loop-claim-sheet { animation: none; }
+}

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import type { FeatureCollection, LineString, Point, Polygon } from "geojson";
 import type { GeoJSONSource, Map as MapLibreMap, MapLayerMouseEvent, MapMouseEvent } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { Check, ChevronDown, ChevronRight, Crosshair, EyeOff, Flag, Footprints, Gauge, LoaderCircle, MapPin, Navigation, Pause, Play, Radio, RotateCcw, Route, ShieldCheck, Square, Timer, X, Zap } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Crosshair, EyeOff, Flag, Footprints, Gauge, LoaderCircle, MapPin, Navigation, Pause, Play, Radio, RotateCcw, Route, ShieldCheck, Square, X, Zap } from "lucide-react";
 import { ColorPalette } from "@/components/ColorPalette";
 import { ConfirmationDialog } from "@/components/ConfirmationDialog";
 import { AuthoritativeGameStateMachine, type AuthoritativeUiEvent } from "@/lib/game/authoritative-state-machine";
@@ -109,6 +109,21 @@ function formatTime(seconds: number) {
   return hours ? `${hours}:${minutes}:${rest}` : `${minutes}:${rest}`;
 }
 
+function formatLiveDistance(meters: number) {
+  if (meters < 1000) return `${Math.round(meters)} m`;
+  return `${(meters / 1000).toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} km`;
+}
+
+function formatPace(seconds: number, meters: number) {
+  // 20 m altındaki mesafede tempo gürültüden ibarettir.
+  if (meters < 20 || seconds <= 0) return "—";
+  const secondsPerKm = Math.round(seconds / (meters / 1000));
+  if (secondsPerKm >= 60 * 60) return "—";
+  const minutes = Math.floor(secondsPerKm / 60);
+  const rest = (secondsPerKm % 60).toString().padStart(2, "0");
+  return `${minutes}:${rest} /km`;
+}
+
 function browserIsOnline() {
   return navigator.onLine !== false;
 }
@@ -137,6 +152,7 @@ export function GameMap({ user, mapState: initialMapState, demo = false }: { use
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const headingDescriptionRef = useRef<HTMLSpanElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
+  const sessionCardRef = useRef<HTMLElement>(null);
   const positionRef = useRef<Coordinate>(ISTANBUL_CENTER);
   const playerHeadingRef = useRef<number | null>(null);
   const pendingHeadingRef = useRef<number | null>(null);
@@ -217,6 +233,25 @@ export function GameMap({ user, mapState: initialMapState, demo = false }: { use
   const [offlineDraftCount, setOfflineDraftCount] = useState(0);
   const [pointSyncState, setPointSyncState] = useState<PointSyncState>("synced");
   const [mapLibrary, setMapLibrary] = useState<typeof import("maplibre-gl") | null>(null);
+
+  // Panel haritanın tüm genişliğini kapladığında (mobil) kamera merkezini panelin üstüne taşı;
+  // böylece oyuncu imleci hiçbir zaman HUD'un altında kalmaz.
+  useEffect(() => {
+    const card = sessionCardRef.current;
+    const map = mapRef.current;
+    if (!mapReady || !card || !map) return;
+    const container = map.getContainer();
+    const applyPadding = () => {
+      const coversWidth = card.offsetWidth > container.clientWidth * 0.6;
+      const bottom = coversWidth ? Math.min(card.offsetHeight + 16, Math.round(container.clientHeight * 0.62)) : 0;
+      if (map.getPadding().bottom !== bottom) map.setPadding({ top: 0, right: 0, bottom, left: 0 });
+    };
+    applyPadding();
+    const observer = new ResizeObserver(applyPadding);
+    observer.observe(card);
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [mapReady]);
 
   useEffect(() => {
     componentActiveRef.current = true;
@@ -1885,7 +1920,7 @@ export function GameMap({ user, mapState: initialMapState, demo = false }: { use
         </aside>
       ) : null}
 
-      <aside className={`game-session-card${sessionIsCollapsed ? " is-collapsed" : ""}`}>
+      <aside ref={sessionCardRef} className={`game-session-card${sessionIsCollapsed ? " is-collapsed" : ""}`}>
         {sessionIsCollapsed ? (
           session.state === "IDLE" || session.state === "FINISHED" ? (
             <button type="button" className="session-collapsed-summary" onClick={() => setSessionCardCollapsed(false)} aria-expanded="false" aria-label={formatMessage(copy.game.expandPanel, { title: session.state === "IDLE" ? (demo ? copy.game.demoRoute : copy.game.realRoute) : copy.game.sessionSummary })}>
@@ -1924,8 +1959,8 @@ export function GameMap({ user, mapState: initialMapState, demo = false }: { use
           <>
             <div className="recording-header"><span className={`recording-pulse${session.state === "PAUSED" || authoritativeActionBlocked ? " is-paused" : ""}`} /><div><span role="status">{recordingStatusLabel}</span><strong>{formatTime(seconds)}</strong></div><button type="button" className="session-collapse-button" onClick={() => setSessionCardCollapsed(true)} aria-label={copy.game.collapseLocationRecordPanel} aria-expanded="true"><ChevronDown size={18} /></button></div>
             {!demo ? <div className={`route-sync-status ${routeSyncCopy.tone}`} role="status" aria-live="polite"><Radio size={15} aria-hidden="true" /><span><strong>{routeSyncCopy.title}</strong><small>{routeSyncCopy.detail}</small></span></div> : null}
-            <div className="live-stats"><span><Route size={18} /><small>Mesafe</small><strong>{(session.totalDistanceM / 1000).toFixed(3)} km</strong></span><span><Timer size={18} /><small>Süre</small><strong>{formatTime(seconds)}</strong></span><span><Square size={18} /><small>Kapatma</small><strong>{session.claimCount}</strong></span></div>
-            <div className="loop-progress"><div><strong>Döngü taraması</strong><span>{candidatePending ? "Sunucuda doğrulanıyor" : claimOpportunity ? "Geçerli döngü" : `${session.coordinates.length} nokta`}</span></div><p>{candidatePending ? "Rota noktaların güvenli biçimde doğrulanıyor…" : claimOpportunity ? `${Math.round(claimOpportunity.estimatedAreaM2)} m² kapatılabilir alan bulundu.` : diagnostic}</p></div>
+            <div className="live-stats"><span><small><Route size={14} aria-hidden="true" />Mesafe</small><strong>{formatLiveDistance(session.totalDistanceM)}</strong></span><span><small><Gauge size={14} aria-hidden="true" />Tempo</small><strong>{formatPace(seconds, session.totalDistanceM)}</strong></span><span><small><Square size={14} aria-hidden="true" />Kapatma</small><strong>{session.claimCount}</strong></span></div>
+            <div className={`loop-progress${candidatePending ? " is-pending" : claimOpportunity ? " is-ready" : " is-scanning"}`}><div><strong>Döngü taraması</strong><span>{candidatePending ? "Sunucuda doğrulanıyor" : claimOpportunity ? "Geçerli döngü" : `${session.coordinates.length} nokta`}</span></div><p>{candidatePending ? "Rota noktaların güvenli biçimde doğrulanıyor…" : claimOpportunity ? `${Math.round(claimOpportunity.estimatedAreaM2)} m² kapatılabilir alan bulundu.` : diagnostic}</p></div>
             {canResetRevokedSession ? <div className="session-actions"><button type="button" className="finish-button" onClick={resetSession}><RotateCcw size={17} /> {copy.game.newSession}</button></div> : <div className="session-actions"><button type="button" className="pause-button" onClick={pauseOrResume} disabled={claimSubmitting || sessionFinishing || candidatePending || authoritativeActionBlocked}>{session.state === "PAUSED" ? <Play size={19} fill="currentColor" /> : <Pause size={19} fill="currentColor" />}{session.state === "PAUSED" ? copy.common.continue : copy.game.pause}</button><button type="button" className="finish-button" onClick={() => void stopTracking()} disabled={claimSubmitting || sessionFinishing || candidatePending || authoritativeActionBlocked}><Flag size={17} /> {sessionFinishing ? copy.game.finishing : copy.game.stopTracking}</button></div>}
           </>
         )}
